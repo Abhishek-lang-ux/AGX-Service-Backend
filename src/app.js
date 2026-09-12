@@ -19,11 +19,12 @@ app.disable("x-powered-by");
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (
-        !origin ||
-        origin === process.env.CLIENT_URL ||
-        /^https:\/\/agx-service(-[a-z0-9-]+)?-agx11\.vercel\.app$/.test(origin)
-      ) {
+      const allowedOrigins = [
+        "https://agx-service.vercel.app",
+        process.env.CLIENT_URL,
+      ];
+
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
