@@ -9,6 +9,7 @@ function clean(value) {
 function getAvatarUrl(req, avatarPath) {
   if (!avatarPath) return null;
 
+<<<<<<< HEAD
   // Normalize legacy HTTP URLs stored in the database. The frontend is
   // served over HTTPS, so profile images must never remain HTTP.
   if (avatarPath.startsWith("http://")) {
@@ -16,6 +17,13 @@ function getAvatarUrl(req, avatarPath) {
   }
 
   if (avatarPath.startsWith("https://")) {
+=======
+  // Already a complete URL
+  if (
+    avatarPath.startsWith("http://") ||
+    avatarPath.startsWith("https://")
+  ) {
+>>>>>>> db014bebcde242caf929d304adec53b190769e17
     return avatarPath;
   }
 

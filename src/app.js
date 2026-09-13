@@ -22,10 +22,13 @@ import {
 
 const app = express();
 
+<<<<<<< HEAD
 // Render terminates TLS at the proxy. Trust the proxy so req.protocol
 // correctly resolves to HTTPS when building public asset URLs.
 app.set("trust proxy", 1);
 
+=======
+>>>>>>> db014bebcde242caf929d304adec53b190769e17
 app.disable("x-powered-by");
 
 /* =========================================================
