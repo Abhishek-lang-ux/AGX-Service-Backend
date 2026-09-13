@@ -13,6 +13,7 @@ import requestRoutes from "./routes/request.routes.js";
 import documentRoutes from "./routes/document.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
 
 import {
   errorHandler,
@@ -140,6 +141,8 @@ app.use("/api/documents", documentRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 app.use("/api/dashboard", dashboardRoutes);
+
+app.use("/api/payments", paymentRoutes);
 
 /* =========================================================
    ERROR HANDLING

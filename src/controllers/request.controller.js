@@ -38,6 +38,10 @@ export async function createRequest(req, res, next) {
   const connection = await db.getConnection();
 
   try {
+    // Prefer the immutable service slug sent by the frontend.
+    // Numeric IDs can differ between databases after imports/seeding, which
+    // previously caused a valid service to be reported as unavailable.
+    const serviceSlug = String(req.body.serviceSlug || req.body.slug || "").trim().toLowerCase();
     const serviceId = Number(req.body.serviceId);
     const title = String(req.body.title || "").trim();
     const description = String(req.body.description || "").trim() || null;
@@ -45,17 +49,40 @@ export async function createRequest(req, res, next) {
       ? req.body.priority
       : "normal";
 
-    if (!Number.isInteger(serviceId) || serviceId <= 0 || !title) {
+    if ((!Number.isInteger(serviceId) || serviceId <= 0) && !serviceSlug) {
       return res.status(400).json({
         success: false,
-        message: "Service and request title are required",
+        message: "A valid service is required",
       });
     }
 
-    const [services] = await connection.execute(
-      "SELECT id, name, base_price FROM services WHERE id = ? AND is_active = 1 LIMIT 1",
-      [serviceId],
-    );
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        message: "Request title is required",
+      });
+    }
+
+    let services;
+
+    if (serviceSlug) {
+      // Slug is stable across environments and is the preferred identifier.
+      [services] = await connection.execute(
+        `SELECT id, name, slug, base_price
+         FROM services
+         WHERE slug = ? AND is_active = 1
+         LIMIT 1`,
+        [serviceSlug],
+      );
+    } else {
+      [services] = await connection.execute(
+        `SELECT id, name, slug, base_price
+         FROM services
+         WHERE id = ? AND is_active = 1
+         LIMIT 1`,
+        [serviceId],
+      );
+    }
 
     if (!services.length) {
       return res.status(404).json({
