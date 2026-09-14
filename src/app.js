@@ -36,12 +36,12 @@ app.use(
   cors({
     origin: (origin, callback) => {
       const allowedOrigins = [
-        "https://agx-service.vercel.app",
+        "https://agxservice.work.gd",
+        "https://www.agxservice.work.gd",
         process.env.CLIENT_URL,
       ].filter(Boolean);
 
       // Allow requests without Origin
-      // (Postman, server-to-server, etc.)
       if (!origin) {
         return callback(null, true);
       }
@@ -104,7 +104,7 @@ app.use(
  * /uploads/profile-images/example.jpg
  *
  * Example:
- * https://agx-service-backend.onrender.com/uploads/profile-images/example.jpg
+ * https://api.agxservice.work.gd/uploads/profile-images/example.jpg
  */
 
 app.use(
