@@ -10,7 +10,6 @@ const DEFAULT_SERVICES = [
 ];
 
 async function ensureDefaultServices(connection = db) {
-<<<<<<< HEAD
   // Use a transaction when possible so a fresh/empty production database
   // cannot remain partially seeded. This function is intentionally idempotent.
   const ownsConnection = connection === db;
@@ -53,27 +52,6 @@ async function ensureDefaultServices(connection = db) {
 }
 
 export { DEFAULT_SERVICES, ensureDefaultServices };
-=======
-  for (const service of DEFAULT_SERVICES) {
-    await connection.execute(
-      `INSERT INTO services
-        (name, slug, short_description, description, category, base_price, is_active, display_order)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-       ON DUPLICATE KEY UPDATE
-        name = VALUES(name),
-        short_description = VALUES(short_description),
-        description = VALUES(description),
-        category = VALUES(category),
-        base_price = VALUES(base_price),
-        is_active = 1,
-        display_order = VALUES(display_order)`,
-      service,
-    );
-  }
-}
-
-export { ensureDefaultServices };
->>>>>>> db014bebcde242caf929d304adec53b190769e17
 
 export async function listServices(req, res, next) {
   try {

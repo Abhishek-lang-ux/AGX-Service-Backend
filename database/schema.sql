@@ -1,9 +1,3 @@
-CREATE DATABASE IF NOT EXISTS agx_service_portal
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE agx_service_portal;
-
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS audit_logs;

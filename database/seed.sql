@@ -1,5 +1,3 @@
-USE agx_service_portal;
-
 INSERT INTO services
   (name, slug, short_description, description, category, base_price, display_order)
 VALUES
