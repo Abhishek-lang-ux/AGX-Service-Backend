@@ -183,3 +183,215 @@ export async function getMyRequest(req, res, next) {
     next(error);
   }
 }
+
+export async function submitRequestWithPayment(req, res, next) {
+  const connection = await db.getConnection();
+
+  try {
+    const serviceSlug = String(
+      req.body.serviceSlug || req.body.slug || "",
+    )
+      .trim()
+      .toLowerCase();
+
+    const serviceId = Number(req.body.serviceId);
+    const title = String(req.body.title || "").trim();
+    const description =
+      String(req.body.description || "").trim() || null;
+
+    const priority = [
+      "low",
+      "normal",
+      "high",
+      "urgent",
+    ].includes(req.body.priority)
+      ? req.body.priority
+      : "normal";
+
+    /*
+     * Payment screenshot is mandatory.
+     * Request must NEVER be created without it.
+     */
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment screenshot is required.",
+      });
+    }
+
+    if ((!Number.isInteger(serviceId) || serviceId <= 0) && !serviceSlug) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid service is required.",
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        message: "Request title is required.",
+      });
+    }
+
+    await ensureDefaultServices(connection);
+
+    let services;
+
+    if (serviceSlug) {
+      [services] = await connection.execute(
+        `SELECT id, name, slug, base_price
+         FROM services
+         WHERE slug = ? AND is_active = 1
+         LIMIT 1`,
+        [serviceSlug],
+      );
+    } else {
+      [services] = await connection.execute(
+        `SELECT id, name, slug, base_price
+         FROM services
+         WHERE id = ? AND is_active = 1
+         LIMIT 1`,
+        [serviceId],
+      );
+    }
+
+    if (!services.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Selected service is unavailable.",
+      });
+    }
+
+    const service = services[0];
+    const amount = Number(service.base_price);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "This service does not have a valid payable amount.",
+      });
+    }
+
+    const requestNumber = makeRequestNumber();
+
+    await connection.beginTransaction();
+
+    /*
+     * 1. Create request ONLY after screenshot has been received.
+     */
+    const [requestResult] = await connection.execute(
+      `INSERT INTO requests
+        (
+          request_number,
+          user_id,
+          service_id,
+          title,
+          description,
+          status,
+          priority,
+          amount
+        )
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      [
+        requestNumber,
+        req.user.id,
+        service.id,
+        title,
+        description,
+        priority,
+        amount,
+      ],
+    );
+
+    const requestId = requestResult.insertId;
+
+    /*
+     * 2. Create manual QR payment record.
+     */
+    await connection.execute(
+      `INSERT INTO payments
+        (
+          request_id,
+          user_id,
+          amount,
+          currency,
+          provider,
+          provider_payment_id,
+          status,
+          metadata
+        )
+       VALUES (?, ?, ?, 'INR', 'manual_qr', NULL, 'pending', ?)`,
+      [
+        requestId,
+        req.user.id,
+        amount,
+        JSON.stringify({
+          method: "manual_qr",
+          payment_screenshot: `/uploads/payment-screenshots/${req.file.filename}`,
+          original_filename: req.file.originalname,
+          mime_type: req.file.mimetype,
+          file_size: req.file.size,
+        }),
+      ],
+    );
+
+    /*
+     * 3. Fetch newly created request.
+     */
+    const [rows] = await connection.execute(
+      `${requestSelect}
+       WHERE r.id = ? AND r.user_id = ?
+       LIMIT 1`,
+      [requestId, req.user.id],
+    );
+
+    if (!rows.length) {
+      throw new Error("Request could not be loaded after creation.");
+    }
+
+    /*
+     * 4. Notify client.
+     */
+    await createNotification({
+      userId: req.user.id,
+      type: "payment",
+      title: "Payment proof submitted",
+      message: `Payment proof for request ${requestNumber} has been submitted and is awaiting verification.`,
+      link: "/payments",
+      connection,
+    });
+
+    await connection.commit();
+
+    return res.status(201).json({
+      success: true,
+      message:
+        "Payment proof submitted successfully. Your request is awaiting payment verification.",
+      request: mapRequest(rows[0]),
+      payment: {
+        status: "Pending",
+        method: "manual_qr",
+        screenshot: `/uploads/payment-screenshots/${req.file.filename}`,
+      },
+    });
+  } catch (error) {
+    await connection.rollback();
+
+    /*
+     * If DB creation failed after the screenshot was uploaded,
+     * remove the orphaned screenshot.
+     */
+    if (req.file?.path) {
+      try {
+        const fs = await import("node:fs/promises");
+        await fs.unlink(req.file.path);
+      } catch {
+        // Ignore cleanup failure.
+      }
+    }
+
+    next(error);
+  } finally {
+    connection.release();
+  }
+}
