@@ -10,14 +10,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to RedServer
+      - name: Deploy Backend
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          script_stop: true
+
           script: |
+            set -e
+
+            echo "======================================"
+            echo "AGX BACKEND DEPLOYMENT STARTED"
+            echo "======================================"
+
             cd /home/agxservice/agx-Service-Backend
-            git pull origin main
+
+            echo "1. Fetching latest code..."
+            git fetch origin main
+
+            echo "2. Updating server to latest main..."
+            git reset --hard origin/main
+
+            echo "3. Installing production dependencies..."
             npm install --omit=dev
+
+            echo "4. Restarting Node.js application..."
+            mkdir -p tmp
             touch tmp/restart.txt
+
+            echo "5. Waiting for application restart..."
+            sleep 8
+
+            echo "6. Checking live API..."
+            curl -fsS https://api.agxservice.online/api/health
+
+            echo ""
+            echo "======================================"
+            echo "AGX BACKEND DEPLOYMENT SUCCESS"
+            echo "======================================"
