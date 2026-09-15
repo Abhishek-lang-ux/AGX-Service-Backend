@@ -16,7 +16,6 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          script_stop: true
 
           script: |
             set -e
@@ -33,17 +32,24 @@ jobs:
             echo "2. Updating server to latest main..."
             git reset --hard origin/main
 
-            echo "3. Installing production dependencies..."
+            echo "3. Activating cPanel Node.js environment..."
+            source /home/agxservice/nodevenv/agx-Service-Backend/24/bin/activate
+
+            echo "4. Checking Node.js and npm..."
+            node -v
+            npm -v
+
+            echo "5. Installing production dependencies..."
             npm install --omit=dev
 
-            echo "4. Restarting Node.js application..."
+            echo "6. Restarting Node.js application..."
             mkdir -p tmp
             touch tmp/restart.txt
 
-            echo "5. Waiting for application restart..."
+            echo "7. Waiting for application restart..."
             sleep 8
 
-            echo "6. Checking live API..."
+            echo "8. Checking live API..."
             curl -fsS https://api.agxservice.online/api/health
 
             echo ""
