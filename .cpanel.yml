@@ -1,8 +1,5 @@
 deployment:
   tasks:
-    - export APPPATH=/home/agxservice/public_html/api.agxservice.online
-    - /bin/cp -R src $APPPATH/
-    - /bin/cp package.json $APPPATH/
-    - /bin/cp package-lock.json $APPPATH/
+    - export APPPATH=/home/agxservice/agx-Service-Backend
     - /bin/mkdir -p $APPPATH/tmp
     - /bin/touch $APPPATH/tmp/restart.txt
