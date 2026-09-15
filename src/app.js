@@ -37,10 +37,12 @@ app.use(
   cors({
     origin: (origin, callback) => {
       const allowedOrigins = [
-        "https://agxservice.work.gd",
-        "https://www.agxservice.work.gd",
-        process.env.CLIENT_URL,
-      ].filter(Boolean);
+  "https://agxservice.online",
+  "https://www.agxservice.online",
+  "https://agxservice.work.gd",
+  "https://www.agxservice.work.gd",
+  process.env.CLIENT_URL,
+].filter(Boolean);
 
       // Allow requests without Origin
       if (!origin) {
