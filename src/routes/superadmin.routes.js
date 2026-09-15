@@ -2,6 +2,9 @@ import { Router } from "express";
 
 import {
   getSuperAdminDashboard,
+  getSuperAdminUsers,
+  updateSuperAdminUserStatus,
+  updateSuperAdminUserRole,
 } from "../controllers/superadmin.controller.js";
 
 import {
@@ -11,9 +14,28 @@ import {
 
 const router = Router();
 
+/*
+ * All SuperAdmin routes require:
+ * 1. Authentication
+ * 2. SuperAdmin role
+ */
 router.use(requireAuth);
 router.use(requireSuperAdmin);
 
+/* Dashboard */
 router.get("/dashboard", getSuperAdminDashboard);
+
+/* Users */
+router.get("/users", getSuperAdminUsers);
+
+router.patch(
+  "/users/:id/status",
+  updateSuperAdminUserStatus,
+);
+
+router.patch(
+  "/users/:id/role",
+  updateSuperAdminUserRole,
+);
 
 export default router;

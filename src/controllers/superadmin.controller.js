@@ -192,3 +192,302 @@ export async function getSuperAdminDashboard(req, res, next) {
     next(error);
   }
 }
+
+/* =========================================================
+   SUPERADMIN USERS
+========================================================= */
+
+export async function getSuperAdminUsers(req, res, next) {
+  try {
+    const {
+      search = "",
+      role = "",
+      status = "",
+      page = 1,
+      limit = 20,
+    } = req.query;
+
+    const currentPage = Math.max(Number(page) || 1, 1);
+    const perPage = Math.min(
+      Math.max(Number(limit) || 20, 1),
+      100,
+    );
+
+    const offset = (currentPage - 1) * perPage;
+
+    const conditions = [];
+    const values = [];
+
+    /*
+     * Search
+     */
+    if (search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+
+      conditions.push(`
+        (
+          u.email LIKE ?
+          OR u.uuid LIKE ?
+          OR p.first_name LIKE ?
+          OR p.last_name LIKE ?
+          OR p.phone LIKE ?
+        )
+      `);
+
+      values.push(
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        searchTerm,
+      );
+    }
+
+    /*
+     * Role filter
+     */
+    if (role.trim()) {
+      conditions.push("u.role = ?");
+      values.push(role.trim());
+    }
+
+    /*
+     * Status filter
+     */
+    if (status.trim()) {
+      conditions.push("u.status = ?");
+      values.push(status.trim());
+    }
+
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    /*
+     * Total count
+     */
+    const [[countResult]] = await db.execute(
+      `
+        SELECT COUNT(*) AS total
+        FROM users u
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
+        ${whereClause}
+      `,
+      values,
+    );
+
+    const total = Number(countResult?.total || 0);
+
+    /*
+     * Users
+     *
+     * NOTE:
+     * Password/hash is intentionally NOT selected.
+     */
+    const [users] = await db.execute(
+      `
+        SELECT
+          u.id,
+          u.uuid,
+          u.email,
+          u.role,
+          u.status,
+          u.created_at,
+          u.last_login_at,
+
+          p.first_name,
+          p.last_name,
+          p.phone
+
+        FROM users u
+
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
+
+        ${whereClause}
+
+        ORDER BY u.created_at DESC
+
+        LIMIT ${perPage}
+        OFFSET ${offset}
+      `,
+      values,
+    );
+
+    const totalPages = Math.max(
+      Math.ceil(total / perPage),
+      1,
+    );
+
+    res.json({
+      success: true,
+
+      pagination: {
+        page: currentPage,
+        limit: perPage,
+        total,
+        totalPages,
+      },
+
+      users: users.map((user) => ({
+        id: user.id,
+        uuid: user.uuid,
+        email: user.email,
+
+        role: user.role,
+        status: user.status,
+
+        firstName: user.first_name,
+        lastName: user.last_name,
+        phone: user.phone,
+
+        createdAt: user.created_at,
+        lastLoginAt: user.last_login_at,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+
+/* =========================================================
+   UPDATE USER STATUS
+========================================================= */
+
+export async function updateSuperAdminUserStatus(
+  req,
+  res,
+  next,
+) {
+  try {
+    const userId = Number(req.params.id);
+    const { status } = req.body;
+
+    const allowedStatuses = [
+      "active",
+      "inactive",
+      "suspended",
+      "pending",
+    ];
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user status.",
+      });
+    }
+
+    /*
+     * Prevent SuperAdmin from suspending/deactivating
+     * their own account.
+     */
+    if (userId === Number(req.user.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot change your own account status.",
+      });
+    }
+
+    const [result] = await db.execute(
+      `
+        UPDATE users
+        SET status = ?
+        WHERE id = ?
+      `,
+      [status, userId],
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "User status updated successfully.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+
+/* =========================================================
+   UPDATE USER ROLE
+========================================================= */
+
+export async function updateSuperAdminUserRole(
+  req,
+  res,
+  next,
+) {
+  try {
+    const userId = Number(req.params.id);
+    const { role } = req.body;
+
+    const allowedRoles = [
+      "client",
+      "staff",
+      "admin",
+      "superadmin",
+    ];
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user role.",
+      });
+    }
+
+    /*
+     * Prevent SuperAdmin from changing their own role.
+     */
+    if (userId === Number(req.user.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot change your own role.",
+      });
+    }
+
+    const [result] = await db.execute(
+      `
+        UPDATE users
+        SET role = ?
+        WHERE id = ?
+      `,
+      [role, userId],
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "User role updated successfully.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
