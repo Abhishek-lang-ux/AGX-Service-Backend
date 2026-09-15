@@ -183,3 +183,4 @@ CREATE TABLE audit_logs (
 ) ENGINE=InnoDB;
 
 SET FOREIGN_KEY_CHECKS = 1;
+

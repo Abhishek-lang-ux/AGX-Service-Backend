@@ -1,3 +1,4 @@
+import superadminRoutes from "./routes/superadmin.routes.js";
 import express from "express";
 import path from "path";
 import cors from "cors";
@@ -147,6 +148,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
 app.use("/api/payments", paymentRoutes);
+
+app.use("/api/superadmin", superadminRoutes);
 
 /* =========================================================
    ERROR HANDLING
