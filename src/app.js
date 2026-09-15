@@ -104,7 +104,7 @@ app.use(
  * /uploads/profile-images/example.jpg
  *
  * Example:
- * https://api.agxservice.work.gd/uploads/profile-images/example.jpg
+ * https://api.agxservice.online/uploads/profile-images/example.jpg
  */
 
 app.use(
