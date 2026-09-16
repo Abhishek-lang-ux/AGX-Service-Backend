@@ -2,6 +2,12 @@ import { db } from "../config/database.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+const uploadRoot = path.resolve(process.cwd(), "uploads");
+
+/* =========================================================
+   SUPERADMIN DASHBOARD
+========================================================= */
+
 export async function getSuperAdminDashboard(req, res, next) {
   try {
     const [
@@ -58,8 +64,24 @@ export async function getSuperAdminDashboard(req, res, next) {
           SUM(status = 'failed') AS failed,
           SUM(status = 'refunded') AS refunded,
           SUM(status = 'cancelled') AS cancelled,
-          COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paidAmount,
-          COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) AS pendingAmount
+          COALESCE(
+            SUM(
+              CASE
+                WHEN status = 'paid' THEN amount
+                ELSE 0
+              END
+            ),
+            0
+          ) AS paidAmount,
+          COALESCE(
+            SUM(
+              CASE
+                WHEN status = 'pending' THEN amount
+                ELSE 0
+              END
+            ),
+            0
+          ) AS pendingAmount
         FROM payments
       `),
 
@@ -76,7 +98,8 @@ export async function getSuperAdminDashboard(req, res, next) {
           p.last_name,
           p.phone
         FROM users u
-        LEFT JOIN profiles p ON p.user_id = u.id
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
         ORDER BY u.created_at DESC
         LIMIT 10
       `),
@@ -95,9 +118,12 @@ export async function getSuperAdminDashboard(req, res, next) {
           p.last_name,
           s.name AS service_name
         FROM requests r
-        INNER JOIN users u ON u.id = r.user_id
-        LEFT JOIN profiles p ON p.user_id = u.id
-        INNER JOIN services s ON s.id = r.service_id
+        INNER JOIN users u
+          ON u.id = r.user_id
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
+        INNER JOIN services s
+          ON s.id = r.service_id
         ORDER BY r.created_at DESC
         LIMIT 10
       `),
@@ -135,7 +161,9 @@ export async function getSuperAdminDashboard(req, res, next) {
         pending: Number(requests.pending || 0),
         submitted: Number(requests.submitted || 0),
         inReview: Number(requests.inReview || 0),
-        documentsRequired: Number(requests.documentsRequired || 0),
+        documentsRequired: Number(
+          requests.documentsRequired || 0
+        ),
         processing: Number(requests.processing || 0),
         completed: Number(requests.completed || 0),
         rejected: Number(requests.rejected || 0),
@@ -182,11 +210,13 @@ export async function getSuperAdminDashboard(req, res, next) {
         status: request.status,
         priority: request.priority,
         amount: Number(request.amount || 0),
+
         user: {
           email: request.user_email,
           firstName: request.first_name,
           lastName: request.last_name,
         },
+
         createdAt: request.created_at,
       })),
     });
@@ -209,10 +239,14 @@ export async function getSuperAdminUsers(req, res, next) {
       limit = 20,
     } = req.query;
 
-    const currentPage = Math.max(Number(page) || 1, 1);
+    const currentPage = Math.max(
+      Number(page) || 1,
+      1
+    );
+
     const perPage = Math.min(
       Math.max(Number(limit) || 20, 1),
-      100,
+      100
     );
 
     const offset = (currentPage - 1) * perPage;
@@ -220,9 +254,8 @@ export async function getSuperAdminUsers(req, res, next) {
     const conditions = [];
     const values = [];
 
-    /*
-     * Search
-     */
+    /* Search */
+
     if (search.trim()) {
       const searchTerm = `%${search.trim()}%`;
 
@@ -241,21 +274,19 @@ export async function getSuperAdminUsers(req, res, next) {
         searchTerm,
         searchTerm,
         searchTerm,
-        searchTerm,
+        searchTerm
       );
     }
 
-    /*
-     * Role filter
-     */
+    /* Role */
+
     if (role.trim()) {
       conditions.push("u.role = ?");
       values.push(role.trim());
     }
 
-    /*
-     * Status filter
-     */
+    /* Status */
+
     if (status.trim()) {
       conditions.push("u.status = ?");
       values.push(status.trim());
@@ -265,9 +296,8 @@ export async function getSuperAdminUsers(req, res, next) {
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
 
-    /*
-     * Total count
-     */
+    /* Total */
+
     const [[countResult]] = await db.execute(
       `
         SELECT COUNT(*) AS total
@@ -276,17 +306,15 @@ export async function getSuperAdminUsers(req, res, next) {
           ON p.user_id = u.id
         ${whereClause}
       `,
-      values,
+      values
     );
 
-    const total = Number(countResult?.total || 0);
+    const total = Number(
+      countResult?.total || 0
+    );
 
-    /*
-     * Users
-     *
-     * NOTE:
-     * Password/hash is intentionally NOT selected.
-     */
+    /* Users */
+
     const [users] = await db.execute(
       `
         SELECT
@@ -314,12 +342,12 @@ export async function getSuperAdminUsers(req, res, next) {
         LIMIT ${perPage}
         OFFSET ${offset}
       `,
-      values,
+      values
     );
 
     const totalPages = Math.max(
       Math.ceil(total / perPage),
-      1,
+      1
     );
 
     res.json({
@@ -336,14 +364,11 @@ export async function getSuperAdminUsers(req, res, next) {
         id: user.id,
         uuid: user.uuid,
         email: user.email,
-
         role: user.role,
         status: user.status,
-
         firstName: user.first_name,
         lastName: user.last_name,
         phone: user.phone,
-
         createdAt: user.created_at,
         lastLoginAt: user.last_login_at,
       })),
@@ -353,7 +378,6 @@ export async function getSuperAdminUsers(req, res, next) {
   }
 }
 
-
 /* =========================================================
    UPDATE USER STATUS
 ========================================================= */
@@ -361,7 +385,7 @@ export async function getSuperAdminUsers(req, res, next) {
 export async function updateSuperAdminUserStatus(
   req,
   res,
-  next,
+  next
 ) {
   try {
     const userId = Number(req.params.id);
@@ -374,7 +398,10 @@ export async function updateSuperAdminUserStatus(
       "pending",
     ];
 
-    if (!Number.isInteger(userId) || userId <= 0) {
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
@@ -388,14 +415,11 @@ export async function updateSuperAdminUserStatus(
       });
     }
 
-    /*
-     * Prevent SuperAdmin from suspending/deactivating
-     * their own account.
-     */
     if (userId === Number(req.user.id)) {
       return res.status(400).json({
         success: false,
-        message: "You cannot change your own account status.",
+        message:
+          "You cannot change your own account status.",
       });
     }
 
@@ -405,7 +429,7 @@ export async function updateSuperAdminUserStatus(
         SET status = ?
         WHERE id = ?
       `,
-      [status, userId],
+      [status, userId]
     );
 
     if (result.affectedRows === 0) {
@@ -417,13 +441,13 @@ export async function updateSuperAdminUserStatus(
 
     res.json({
       success: true,
-      message: "User status updated successfully.",
+      message:
+        "User status updated successfully.",
     });
   } catch (error) {
     next(error);
   }
 }
-
 
 /* =========================================================
    UPDATE USER ROLE
@@ -432,7 +456,7 @@ export async function updateSuperAdminUserStatus(
 export async function updateSuperAdminUserRole(
   req,
   res,
-  next,
+  next
 ) {
   try {
     const userId = Number(req.params.id);
@@ -445,7 +469,10 @@ export async function updateSuperAdminUserRole(
       "superadmin",
     ];
 
-    if (!Number.isInteger(userId) || userId <= 0) {
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID.",
@@ -459,13 +486,11 @@ export async function updateSuperAdminUserRole(
       });
     }
 
-    /*
-     * Prevent SuperAdmin from changing their own role.
-     */
     if (userId === Number(req.user.id)) {
       return res.status(400).json({
         success: false,
-        message: "You cannot change your own role.",
+        message:
+          "You cannot change your own role.",
       });
     }
 
@@ -475,7 +500,7 @@ export async function updateSuperAdminUserRole(
         SET role = ?
         WHERE id = ?
       `,
-      [role, userId],
+      [role, userId]
     );
 
     if (result.affectedRows === 0) {
@@ -487,36 +512,284 @@ export async function updateSuperAdminUserRole(
 
     res.json({
       success: true,
-      message: "User role updated successfully.",
+      message:
+        "User role updated successfully.",
     });
   } catch (error) {
     next(error);
   }
 }
 
-import { Router } from "express";
-import { requireAuth } from "../middleware/auth.js";
-import {
-  deleteDocument,
-  downloadDocument,
-  listDocuments,
-  uploadDocuments,
-} from "../controllers/document.controller.js";
-import { documentUpload } from "../config/uploads.js";
+/* =========================================================
+   SUPERADMIN DOCUMENTS
+========================================================= */
 
-const router = Router();
+export async function getSuperAdminDocuments(
+  req,
+  res,
+  next
+) {
+  try {
+    const [rows] = await db.execute(`
+      SELECT
+        d.id,
+        d.request_id,
+        d.original_name,
+        d.mime_type,
+        d.file_size,
+        d.document_type,
+        d.status,
+        d.rejection_reason,
+        d.created_at,
+        d.updated_at,
 
-router.use(requireAuth);
+        r.request_number,
+        r.title AS request_title,
+        r.status AS request_status,
 
-router.get("/request/:requestId", listDocuments);
+        u.id AS user_id,
+        u.email AS user_email,
 
-router.post(
-  "/request/:requestId",
-  documentUpload.array("documents", 5),
-  uploadDocuments,
-);
+        p.first_name,
+        p.last_name,
+        p.phone,
 
-router.get("/:id/download", downloadDocument);
-router.delete("/:id", deleteDocument);
+        s.name AS service_name
 
-export default router;
+      FROM request_documents d
+
+      INNER JOIN requests r
+        ON r.id = d.request_id
+
+      INNER JOIN users u
+        ON u.id = r.user_id
+
+      LEFT JOIN profiles p
+        ON p.user_id = u.id
+
+      LEFT JOIN services s
+        ON s.id = r.service_id
+
+      ORDER BY d.created_at DESC
+    `);
+
+    res.json({
+      success: true,
+
+      documents: rows.map((row) => ({
+        id: row.id,
+        requestId: row.request_id,
+
+        originalName: row.original_name,
+        mimeType: row.mime_type,
+        fileSize: Number(row.file_size || 0),
+
+        documentType: row.document_type,
+        status: row.status,
+        rejectionReason: row.rejection_reason,
+
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+
+        requestNumber: row.request_number,
+        requestTitle: row.request_title,
+        requestStatus: row.request_status,
+
+        userId: row.user_id,
+        userEmail: row.user_email,
+
+        firstName: row.first_name,
+        lastName: row.last_name,
+        phone: row.phone,
+
+        serviceName: row.service_name,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/* =========================================================
+   SUPERADMIN DOCUMENT VIEW
+========================================================= */
+
+export async function viewSuperAdminDocument(
+  req,
+  res,
+  next
+) {
+  try {
+    const documentId = Number(req.params.id);
+
+    if (
+      !Number.isInteger(documentId) ||
+      documentId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid document ID",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `
+        SELECT
+          original_name,
+          storage_path,
+          mime_type
+        FROM request_documents
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [documentId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    const document = rows[0];
+
+    const absolutePath = path.resolve(
+      process.cwd(),
+      document.storage_path
+    );
+
+    /* Prevent path traversal */
+
+    const relativePath = path.relative(
+      uploadRoot,
+      absolutePath
+    );
+
+    if (
+      relativePath.startsWith("..") ||
+      path.isAbsolute(relativePath)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Document access denied",
+      });
+    }
+
+    /* Check file */
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Document file not found on server",
+      });
+    }
+
+    res.setHeader(
+      "Content-Type",
+      document.mime_type ||
+        "application/octet-stream"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename*=UTF-8''${encodeURIComponent(
+        document.original_name
+      )}`
+    );
+
+    return res.sendFile(absolutePath);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/* =========================================================
+   SUPERADMIN DOCUMENT DOWNLOAD
+========================================================= */
+
+export async function downloadSuperAdminDocument(
+  req,
+  res,
+  next
+) {
+  try {
+    const documentId = Number(req.params.id);
+
+    if (
+      !Number.isInteger(documentId) ||
+      documentId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid document ID",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `
+        SELECT
+          original_name,
+          storage_path,
+          mime_type
+        FROM request_documents
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [documentId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    const document = rows[0];
+
+    const absolutePath = path.resolve(
+      process.cwd(),
+      document.storage_path
+    );
+
+    /* Prevent path traversal */
+
+    const relativePath = path.relative(
+      uploadRoot,
+      absolutePath
+    );
+
+    if (
+      relativePath.startsWith("..") ||
+      path.isAbsolute(relativePath)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Document access denied",
+      });
+    }
+
+    /* Check file */
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Document file not found on server",
+      });
+    }
+
+    return res.download(
+      absolutePath,
+      document.original_name
+    );
+  } catch (error) {
+    next(error);
+  }
+}
