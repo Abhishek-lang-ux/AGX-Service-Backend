@@ -40,7 +40,14 @@ jobs:
             npm -v
 
             echo "5. Installing production dependencies..."
-            npm install --omit=dev
+
+if [ -L node_modules ]; then
+  echo "CloudLinux node_modules symlink detected."
+else
+  echo "node_modules symlink not found. Using existing cPanel Node environment."
+fi
+
+npm install --omit=dev --no-package-lock
 
             echo "6. Restarting Node.js application..."
             mkdir -p tmp
