@@ -3,12 +3,13 @@ import { createNotification } from "./notification.controller.js";
 
 function mapPayment(row) {
   const statusMap = {
-    paid: "Paid",
-    pending: "Pending",
-    failed: "Failed",
-    refunded: "Refunded",
-    cancelled: "Cancelled",
-  };
+  paid: "Accepted",
+  pending: "Pending",
+  rejected: "Rejected",
+  failed: "Failed",
+  refunded: "Refunded",
+  cancelled: "Cancelled",
+};
 
   return {
     id: row.id,

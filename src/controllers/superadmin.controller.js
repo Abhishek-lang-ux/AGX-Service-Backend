@@ -28,7 +28,8 @@ export async function getSuperAdminDashboard(req, res, next) {
           SUM(status = 'active') AS active,
           SUM(status = 'inactive') AS inactive,
           SUM(status = 'suspended') AS suspended,
-          SUM(status = 'pending') AS pending
+          SUM(status = 'pending') AS pending,
+          SUM(status = 'rejected') AS rejected,
         FROM users
       `),
 
@@ -179,15 +180,16 @@ export async function getSuperAdminDashboard(req, res, next) {
       },
 
       payments: {
-        total: Number(payments.total || 0),
-        paid: Number(payments.paid || 0),
-        pending: Number(payments.pending || 0),
-        failed: Number(payments.failed || 0),
-        refunded: Number(payments.refunded || 0),
-        cancelled: Number(payments.cancelled || 0),
-        paidAmount: Number(payments.paidAmount || 0),
-        pendingAmount: Number(payments.pendingAmount || 0),
-      },
+  total: Number(payments.total || 0),
+  paid: Number(payments.paid || 0),
+  pending: Number(payments.pending || 0),
+  rejected: Number(payments.rejected || 0),
+  failed: Number(payments.failed || 0),
+  refunded: Number(payments.refunded || 0),
+  cancelled: Number(payments.cancelled || 0),
+  paidAmount: Number(payments.paidAmount || 0),
+  pendingAmount: Number(payments.pendingAmount || 0),
+},
 
       recentUsers: recentUsers.map((user) => ({
         id: user.id,
@@ -791,5 +793,485 @@ export async function downloadSuperAdminDocument(
     );
   } catch (error) {
     next(error);
+  }
+}
+
+/* =========================================================
+   SUPERADMIN PAYMENTS
+========================================================= */
+
+function parsePaymentMetadata(value) {
+  if (!value) return {};
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
+
+/* =========================================================
+   LIST PAYMENTS
+========================================================= */
+
+export async function getSuperAdminPayments(req, res, next) {
+  try {
+    const [rows] = await db.execute(`
+      SELECT
+        p.id,
+        p.request_id,
+        p.user_id,
+        p.amount,
+        p.currency,
+        p.provider,
+        p.provider_payment_id,
+        p.status,
+        p.paid_at,
+        p.metadata,
+        p.created_at,
+        p.updated_at,
+
+        r.request_number,
+        r.title AS request_title,
+
+        u.email AS user_email,
+
+        pr.first_name,
+        pr.last_name,
+        pr.phone,
+
+        s.name AS service_name
+
+      FROM payments p
+
+      INNER JOIN requests r
+        ON r.id = p.request_id
+
+      INNER JOIN users u
+        ON u.id = p.user_id
+
+      LEFT JOIN profiles pr
+        ON pr.user_id = u.id
+
+      LEFT JOIN services s
+        ON s.id = r.service_id
+
+      ORDER BY p.created_at DESC
+    `);
+
+    res.json({
+      success: true,
+
+      payments: rows.map((payment) => {
+        const metadata = parsePaymentMetadata(payment.metadata);
+
+        return {
+          id: payment.id,
+
+          requestId: payment.request_id,
+          requestNumber: payment.request_number,
+          requestTitle: payment.request_title,
+
+          serviceName: payment.service_name,
+
+          userId: payment.user_id,
+          userEmail: payment.user_email,
+          firstName: payment.first_name,
+          lastName: payment.last_name,
+          phone: payment.phone,
+
+          amount: Number(payment.amount || 0),
+          currency: payment.currency,
+
+          provider: payment.provider,
+          providerPaymentId: payment.provider_payment_id,
+
+          status: payment.status,
+
+          paidAt: payment.paid_at,
+          createdAt: payment.created_at,
+          updatedAt: payment.updated_at,
+
+          screenshot: metadata.payment_screenshot || null,
+          originalFilename:
+            metadata.original_filename || null,
+          mimeType:
+            metadata.mime_type || null,
+          fileSize:
+            Number(metadata.file_size || 0),
+        };
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+
+/* =========================================================
+   VIEW PAYMENT SCREENSHOT
+========================================================= */
+
+export async function viewSuperAdminPaymentScreenshot(
+  req,
+  res,
+  next
+) {
+  try {
+    const paymentId = Number(req.params.id);
+
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment ID.",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `
+        SELECT
+          metadata
+        FROM payments
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [paymentId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment not found.",
+      });
+    }
+
+    const metadata = parsePaymentMetadata(rows[0].metadata);
+
+    if (!metadata.payment_screenshot) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment screenshot not found.",
+      });
+    }
+
+    const absolutePath = path.resolve(
+      process.cwd(),
+      metadata.payment_screenshot
+    );
+
+    /* Prevent path traversal */
+
+    const relativePath = path.relative(
+      uploadRoot,
+      absolutePath
+    );
+
+    if (
+      relativePath.startsWith("..") ||
+      path.isAbsolute(relativePath)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Payment screenshot access denied.",
+      });
+    }
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        message: "Payment screenshot file not found on server.",
+      });
+    }
+
+    res.setHeader(
+      "Content-Type",
+      metadata.mime_type || "image/jpeg"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename*=UTF-8''${encodeURIComponent(
+        metadata.original_filename || `payment-${paymentId}`
+      )}`
+    );
+
+    return res.sendFile(absolutePath);
+  } catch (error) {
+    next(error);
+  }
+}
+
+
+/* =========================================================
+   DOWNLOAD PAYMENT SCREENSHOT
+========================================================= */
+
+export async function downloadSuperAdminPaymentScreenshot(
+  req,
+  res,
+  next
+) {
+  try {
+    const paymentId = Number(req.params.id);
+
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment ID.",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `
+        SELECT
+          metadata
+        FROM payments
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [paymentId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment not found.",
+      });
+    }
+
+    const metadata = parsePaymentMetadata(rows[0].metadata);
+
+    if (!metadata.payment_screenshot) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment screenshot not found.",
+      });
+    }
+
+    const absolutePath = path.resolve(
+      process.cwd(),
+      metadata.payment_screenshot
+    );
+
+    /* Prevent path traversal */
+
+    const relativePath = path.relative(
+      uploadRoot,
+      absolutePath
+    );
+
+    if (
+      relativePath.startsWith("..") ||
+      path.isAbsolute(relativePath)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Payment screenshot access denied.",
+      });
+    }
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        message: "Payment screenshot file not found on server.",
+      });
+    }
+
+    return res.download(
+      absolutePath,
+      metadata.original_filename ||
+        `payment-${paymentId}`
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+
+/* =========================================================
+   ACCEPT / REJECT PAYMENT
+========================================================= */
+
+export async function updateSuperAdminPaymentStatus(
+  req,
+  res,
+  next
+) {
+  let connection;
+
+  try {
+    const paymentId = Number(req.params.id);
+    const { status, rejectionReason = "" } = req.body;
+
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment ID.",
+      });
+    }
+
+    const allowedStatuses = ["paid", "rejected"];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment status.",
+      });
+    }
+
+    connection = await db.getConnection();
+
+    await connection.beginTransaction();
+
+    /*
+     * Lock payment row so two SuperAdmins cannot
+     * process the same pending payment simultaneously.
+     */
+
+    const [paymentRows] = await connection.execute(
+      `
+        SELECT
+          p.id,
+          p.request_id,
+          p.user_id,
+          p.amount,
+          p.status,
+          r.request_number,
+          s.name AS service_name
+        FROM payments p
+        INNER JOIN requests r
+          ON r.id = p.request_id
+        INNER JOIN services s
+          ON s.id = r.service_id
+        WHERE p.id = ?
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [paymentId]
+    );
+
+    if (!paymentRows.length) {
+      await connection.rollback();
+
+      return res.status(404).json({
+        success: false,
+        message: "Payment not found.",
+      });
+    }
+
+    const payment = paymentRows[0];
+
+    if (payment.status !== "pending") {
+      await connection.rollback();
+
+      return res.status(409).json({
+        success: false,
+        message: `Payment has already been ${payment.status}.`,
+      });
+    }
+
+    /*
+     * ACCEPT
+     */
+
+    if (status === "paid") {
+      await connection.execute(
+        `
+          UPDATE payments
+          SET
+            status = 'paid',
+            paid_at = NOW(),
+            updated_at = NOW()
+          WHERE id = ?
+        `,
+        [paymentId]
+      );
+
+      /*
+       * Keep request status as pending for now.
+       * Payment verification and request processing
+       * remain separate.
+       */
+
+      await createNotification({
+        userId: payment.user_id,
+        type: "payment",
+        title: "Payment accepted",
+        message:
+          `Your payment for request ${payment.request_number} has been verified successfully.`,
+        link: "/payments",
+        connection,
+      });
+    }
+
+    /*
+     * REJECT
+     */
+
+    if (status === "rejected") {
+      await connection.execute(
+        `
+          UPDATE payments
+          SET
+            status = 'rejected',
+            updated_at = NOW()
+          WHERE id = ?
+        `,
+        [paymentId]
+      );
+
+      const cleanReason = String(
+        rejectionReason || ""
+      ).trim();
+
+      const reasonText = cleanReason
+        ? ` Reason: ${cleanReason}`
+        : "";
+
+      await createNotification({
+        userId: payment.user_id,
+        type: "payment",
+        title: "Payment rejected",
+        message:
+          `Your payment proof for request ${payment.request_number} was rejected.${reasonText}`,
+        link: "/payments",
+        connection,
+      });
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message:
+        status === "paid"
+          ? "Payment accepted successfully."
+          : "Payment rejected successfully.",
+      payment: {
+        id: paymentId,
+        status,
+      },
+    });
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch {}
+    }
+
+    next(error);
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 }

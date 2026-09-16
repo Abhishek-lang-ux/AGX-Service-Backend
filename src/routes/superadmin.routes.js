@@ -5,9 +5,15 @@ import {
   getSuperAdminUsers,
   updateSuperAdminUserStatus,
   updateSuperAdminUserRole,
+
   getSuperAdminDocuments,
   viewSuperAdminDocument,
   downloadSuperAdminDocument,
+
+  getSuperAdminPayments,
+  viewSuperAdminPaymentScreenshot,
+  downloadSuperAdminPaymentScreenshot,
+  updateSuperAdminPaymentStatus,
 } from "../controllers/superadmin.controller.js";
 
 import {
@@ -58,6 +64,30 @@ router.get(
 router.get(
   "/documents/:id/download",
   downloadSuperAdminDocument,
+);
+
+/* =========================================================
+   PAYMENTS
+========================================================= */
+
+router.get(
+  "/payments",
+  getSuperAdminPayments,
+);
+
+router.get(
+  "/payments/:id/view",
+  viewSuperAdminPaymentScreenshot,
+);
+
+router.get(
+  "/payments/:id/download",
+  downloadSuperAdminPaymentScreenshot,
+);
+
+router.patch(
+  "/payments/:id/status",
+  updateSuperAdminPaymentStatus,
 );
 
 export default router;
