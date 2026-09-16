@@ -40,7 +40,7 @@ jobs:
             npm -v
 
             echo "5. Installing production dependencies..."
-            npm install --omit=dev --no-package-lock
+            npm install --omit=dev
 
             echo "6. Restarting Node.js application..."
             mkdir -p tmp
