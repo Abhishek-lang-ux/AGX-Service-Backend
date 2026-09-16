@@ -1,4 +1,6 @@
 import { db } from "../config/database.js";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 export async function getSuperAdminDashboard(req, res, next) {
   try {
@@ -491,3 +493,30 @@ export async function updateSuperAdminUserRole(
     next(error);
   }
 }
+
+import { Router } from "express";
+import { requireAuth } from "../middleware/auth.js";
+import {
+  deleteDocument,
+  downloadDocument,
+  listDocuments,
+  uploadDocuments,
+} from "../controllers/document.controller.js";
+import { documentUpload } from "../config/uploads.js";
+
+const router = Router();
+
+router.use(requireAuth);
+
+router.get("/request/:requestId", listDocuments);
+
+router.post(
+  "/request/:requestId",
+  documentUpload.array("documents", 5),
+  uploadDocuments,
+);
+
+router.get("/:id/download", downloadDocument);
+router.delete("/:id", deleteDocument);
+
+export default router;

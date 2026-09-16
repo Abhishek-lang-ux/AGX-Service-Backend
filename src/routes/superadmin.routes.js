@@ -5,6 +5,9 @@ import {
   getSuperAdminUsers,
   updateSuperAdminUserStatus,
   updateSuperAdminUserRole,
+  getSuperAdminDocuments,
+  viewSuperAdminDocument,
+  downloadSuperAdminDocument,
 } from "../controllers/superadmin.controller.js";
 
 import {
@@ -36,6 +39,25 @@ router.patch(
 router.patch(
   "/users/:id/role",
   updateSuperAdminUserRole,
+);
+
+/* =========================================================
+   DOCUMENTS
+========================================================= */
+
+router.get(
+  "/documents",
+  getSuperAdminDocuments,
+);
+
+router.get(
+  "/documents/:id/view",
+  viewSuperAdminDocument,
+);
+
+router.get(
+  "/documents/:id/download",
+  downloadSuperAdminDocument,
 );
 
 export default router;
