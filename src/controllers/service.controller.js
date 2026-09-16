@@ -87,7 +87,7 @@ const DEFAULT_SERVICES = [
     "PAN application, correction and reprint assistance.",
     "Assistance with new PAN applications, corrections, reprints and applicable PAN-related processes.",
     "Documents",
-    179,
+    160,
     10,
   ],
   [
