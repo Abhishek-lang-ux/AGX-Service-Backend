@@ -29,7 +29,7 @@ export async function getSuperAdminDashboard(req, res, next) {
           SUM(status = 'inactive') AS inactive,
           SUM(status = 'suspended') AS suspended,
           SUM(status = 'pending') AS pending,
-          SUM(status = 'rejected') AS rejected,
+          SUM(status = 'rejected') AS rejected
         FROM users
       `),
 
