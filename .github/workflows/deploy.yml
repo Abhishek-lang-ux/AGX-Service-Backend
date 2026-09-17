@@ -16,6 +16,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
 
           script: |
             set -e
@@ -24,33 +25,69 @@ jobs:
             echo "AGX BACKEND DEPLOYMENT STARTED"
             echo "======================================"
 
-            cd /home/agxservice/agx-Service-Backend
+            APP_DIR="/home/agxservice/agx-Service-Backend"
+            NODE_BIN="/home/agxservice/nodevenv/agx-Service-Backend/24/bin"
 
-            echo "1. Fetching latest code..."
+            echo "1. Going to backend directory..."
+            cd "$APP_DIR"
+
+            echo "2. Fetching latest code..."
             git fetch origin main
 
-            echo "2. Updating server to latest main..."
+            echo "3. Updating server to latest main..."
             git reset --hard origin/main
 
-            echo "3. Activating cPanel Node.js environment..."
-            source /home/agxservice/nodevenv/agx-Service-Backend/24/bin/activate
+            echo "4. Activating cPanel Node.js environment..."
+            export PATH="$NODE_BIN:$PATH"
+            source "$NODE_BIN/activate"
 
-            echo "4. Checking Node.js and npm..."
+            echo "5. Checking Node.js..."
             node -v
+
+            echo "6. Checking npm..."
             npm -v
 
-            echo "5. Installing production dependencies..."
-            npm install --omit=dev
+            echo "7. Installing locked production dependencies..."
 
-            echo "6. Restarting Node.js application..."
+            if [ -f package-lock.json ]; then
+              npm ci --omit=dev
+            else
+              npm install --omit=dev
+            fi
+
+            echo "8. Restarting cPanel Node.js application..."
             mkdir -p tmp
             touch tmp/restart.txt
 
-            echo "7. Waiting for application restart..."
-            sleep 8
+            echo "9. Waiting for application restart..."
+            sleep 5
 
-            echo "8. Checking live API..."
-            curl -fsS https://api.agxservice.online/api/health
+            echo "10. Checking live API..."
+
+            SUCCESS=0
+
+            for i in 1 2 3 4 5 6 7 8 9 10
+            do
+              echo "Health check attempt $i..."
+
+              if curl -fsS https://api.agxservice.online/api/health; then
+                SUCCESS=1
+                echo ""
+                echo "API HEALTH CHECK PASSED"
+                break
+              fi
+
+              echo "API not ready yet. Waiting 3 seconds..."
+              sleep 3
+            done
+
+            if [ "$SUCCESS" -ne 1 ]; then
+              echo ""
+              echo "======================================"
+              echo "BACKEND HEALTH CHECK FAILED"
+              echo "======================================"
+              exit 1
+            fi
 
             echo ""
             echo "======================================"
