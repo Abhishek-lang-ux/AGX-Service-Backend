@@ -14,6 +14,9 @@ import {
   viewSuperAdminPaymentScreenshot,
   downloadSuperAdminPaymentScreenshot,
   updateSuperAdminPaymentStatus,
+  getSuperAdminRequests,
+  getSuperAdminRequest,
+  updateSuperAdminRequestStatus,
 } from "../controllers/superadmin.controller.js";
 
 import {
@@ -91,3 +94,8 @@ router.patch(
 );
 
 export default router;
+
+/* REQUESTS */
+router.get("/requests", getSuperAdminRequests);
+router.get("/requests/:id", getSuperAdminRequest);
+router.patch("/requests/:id/status", updateSuperAdminRequestStatus);

@@ -1284,3 +1284,349 @@ export async function updateSuperAdminPaymentStatus(
     }
   }
 }
+
+/* =========================================================
+   SUPERADMIN REQUESTS — LIST
+========================================================= */
+
+export async function getSuperAdminRequests(req, res, next) {
+  try {
+    const { search = "", status = "" } = req.query;
+
+    const conditions = [];
+    const values = [];
+
+    if (search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+
+      conditions.push(`
+        (
+          r.request_number LIKE ?
+          OR r.title LIKE ?
+          OR u.email LIKE ?
+          OR p.first_name LIKE ?
+          OR p.last_name LIKE ?
+          OR s.name LIKE ?
+        )
+      `);
+
+      values.push(
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        searchTerm
+      );
+    }
+
+    if (status.trim()) {
+      conditions.push("r.status = ?");
+      values.push(status.trim());
+    }
+
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const [rows] = await db.execute(
+      `
+        SELECT
+          r.id,
+          r.request_number,
+          r.title,
+          r.status,
+          r.priority,
+          r.amount,
+          r.created_at,
+
+          u.email AS user_email,
+          p.first_name,
+          p.last_name,
+          p.phone,
+
+          s.name AS service_name
+
+        FROM requests r
+
+        INNER JOIN users u
+          ON u.id = r.user_id
+
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
+
+        INNER JOIN services s
+          ON s.id = r.service_id
+
+        ${whereClause}
+
+        ORDER BY r.created_at DESC
+      `,
+      values
+    );
+
+    res.json({
+      success: true,
+
+      requests: rows.map((request) => ({
+        id: request.id,
+        requestNumber: request.request_number,
+        title: request.title,
+        serviceName: request.service_name,
+        status: request.status,
+        priority: request.priority,
+        amount: Number(request.amount || 0),
+
+        user: {
+          email: request.user_email,
+          firstName: request.first_name,
+          lastName: request.last_name,
+          phone: request.phone,
+        },
+
+        createdAt: request.created_at,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/* =========================================================
+   SUPERADMIN REQUEST — SINGLE (with payments + documents)
+========================================================= */
+
+export async function getSuperAdminRequest(req, res, next) {
+  try {
+    const requestId = Number(req.params.id);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request ID.",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `
+        SELECT
+          r.id,
+          r.request_number,
+          r.title,
+          r.description,
+          r.status,
+          r.priority,
+          r.amount,
+          r.created_at,
+          r.updated_at,
+
+          u.id AS user_id,
+          u.email AS user_email,
+
+          p.first_name,
+          p.last_name,
+          p.phone,
+
+          s.name AS service_name
+
+        FROM requests r
+
+        INNER JOIN users u
+          ON u.id = r.user_id
+
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
+
+        INNER JOIN services s
+          ON s.id = r.service_id
+
+        WHERE r.id = ?
+        LIMIT 1
+      `,
+      [requestId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Request not found.",
+      });
+    }
+
+    const request = rows[0];
+
+    const [payments] = await db.execute(
+      `
+        SELECT id, amount, status
+        FROM payments
+        WHERE request_id = ?
+        ORDER BY created_at DESC
+      `,
+      [requestId]
+    );
+
+    const [documents] = await db.execute(
+      `
+        SELECT id, original_name, document_type, status
+        FROM request_documents
+        WHERE request_id = ?
+        ORDER BY created_at DESC
+      `,
+      [requestId]
+    );
+
+    res.json({
+      success: true,
+
+      request: {
+        id: request.id,
+        requestNumber: request.request_number,
+        title: request.title,
+        description: request.description,
+        serviceName: request.service_name,
+        status: request.status,
+        priority: request.priority,
+        amount: Number(request.amount || 0),
+
+        user: {
+          id: request.user_id,
+          email: request.user_email,
+          firstName: request.first_name,
+          lastName: request.last_name,
+          phone: request.phone,
+        },
+
+        payments: payments.map((payment) => ({
+          id: payment.id,
+          amount: Number(payment.amount || 0),
+          status: payment.status,
+        })),
+
+        documents: documents.map((doc) => ({
+          id: doc.id,
+          original_filename: doc.original_name,
+          document_type: doc.document_type,
+          status: doc.status,
+        })),
+
+        createdAt: request.created_at,
+        updatedAt: request.updated_at,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/* =========================================================
+   UPDATE REQUEST STATUS
+========================================================= */
+
+export async function updateSuperAdminRequestStatus(
+  req,
+  res,
+  next
+) {
+  let connection;
+
+  try {
+    const requestId = Number(req.params.id);
+    const { status } = req.body;
+
+    const allowedStatuses = [
+      "pending",
+      "submitted",
+      "in_review",
+      "documents_required",
+      "processing",
+      "completed",
+      "rejected",
+      "cancelled",
+    ];
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request ID.",
+      });
+    }
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request status.",
+      });
+    }
+
+    connection = await db.getConnection();
+
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute(
+      `
+        SELECT
+          r.id,
+          r.request_number,
+          r.user_id,
+          r.status
+        FROM requests r
+        WHERE r.id = ?
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [requestId]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+
+      return res.status(404).json({
+        success: false,
+        message: "Request not found.",
+      });
+    }
+
+    const request = rows[0];
+
+    await connection.execute(
+      `
+        UPDATE requests
+        SET status = ?, updated_at = NOW()
+        WHERE id = ?
+      `,
+      [status, requestId]
+    );
+
+    await createNotification({
+      userId: request.user_id,
+      type: "request",
+      title: "Request status updated",
+      message: `Your request ${request.request_number} status is now "${status}".`,
+      link: "/requests",
+      connection,
+    });
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: "Request status updated successfully.",
+      request: {
+        id: requestId,
+        status,
+      },
+    });
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch {}
+    }
+
+    next(error);
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+}
