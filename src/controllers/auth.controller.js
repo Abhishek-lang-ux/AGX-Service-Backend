@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { randomUUID } from "node:crypto";
+// Top wala import line replace karo:
+import { randomUUID, randomBytes, createHash } from "node:crypto";
+import { sendMail } from "../config/mailer.js";
 import { db } from "../config/database.js";
 import { env } from "../config/env.js";
 
@@ -155,4 +157,151 @@ export async function me(req, res) {
     country: rows[0].country ?? null,
     avatarPath: rows[0].avatar_path ?? null,
   }});
+}
+
+/* =========================================================
+   FORGOT PASSWORD
+========================================================= */
+
+export async function forgotPassword(req, res, next) {
+  try {
+    const email = String(req.body.email || "").trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required.",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `SELECT id, email FROM users WHERE email = ? LIMIT 1`,
+      [email],
+    );
+
+    /*
+     * Always respond with success, even if the user
+     * does not exist. This prevents email enumeration
+     * (an attacker guessing which emails are registered).
+     */
+
+    if (rows.length) {
+      const user = rows[0];
+
+      const rawToken = randomBytes(32).toString("hex");
+
+      const tokenHash = createHash("sha256")
+        .update(rawToken)
+        .digest("hex");
+
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+      await db.execute(
+        `INSERT INTO password_resets (user_id, token_hash, expires_at)
+         VALUES (?, ?, ?)`,
+        [user.id, tokenHash, expiresAt],
+      );
+
+      const resetLink = `${env.clientUrl}/reset-password?token=${rawToken}`;
+
+      await sendMail({
+        to: user.email,
+        subject: "Reset your AGX Services password",
+        html: `
+          <p>We received a request to reset your AGX Services account password.</p>
+          <p><a href="${resetLink}">Click here to reset your password</a></p>
+          <p>This link will expire in 30 minutes. If you did not request this, you can safely ignore this email.</p>
+        `,
+      });
+    }
+
+    res.json({
+      success: true,
+      message:
+        "If an AGX account exists for this email, a password reset link has been sent.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/* =========================================================
+   RESET PASSWORD
+========================================================= */
+
+export async function resetPassword(req, res, next) {
+  try {
+    const token = String(req.body.token || "").trim();
+    const password = String(req.body.password || "");
+
+    if (!token || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Token and new password are required.",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters.",
+      });
+    }
+
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+
+    const [rows] = await db.execute(
+      `SELECT id, user_id, expires_at, used_at
+       FROM password_resets
+       WHERE token_hash = ?
+       LIMIT 1`,
+      [tokenHash],
+    );
+
+    const invalidResponse = () =>
+      res.status(400).json({
+        success: false,
+        message: "This password reset link is invalid or has expired.",
+      });
+
+    if (!rows.length) {
+      return invalidResponse();
+    }
+
+    const resetRow = rows[0];
+
+    if (
+      resetRow.used_at ||
+      new Date(resetRow.expires_at).getTime() < Date.now()
+    ) {
+      return invalidResponse();
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    await db.execute(
+      `UPDATE users SET password_hash = ? WHERE id = ?`,
+      [passwordHash, resetRow.user_id],
+    );
+
+    /*
+     * Mark every outstanding reset token for this user as
+     * used, not just the one that was submitted. This closes
+     * off any other reset links that were requested earlier.
+     */
+
+    await db.execute(
+      `UPDATE password_resets
+       SET used_at = NOW()
+       WHERE user_id = ? AND used_at IS NULL`,
+      [resetRow.user_id],
+    );
+
+    res.json({
+      success: true,
+      message: "Your password has been reset successfully.",
+    });
+  } catch (error) {
+    next(error);
+  }
 }
