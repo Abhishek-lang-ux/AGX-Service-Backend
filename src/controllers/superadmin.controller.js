@@ -960,10 +960,14 @@ export async function viewSuperAdminPaymentScreenshot(
       });
     }
 
-    const absolutePath = path.resolve(
-      process.cwd(),
-      metadata.payment_screenshot
-    );
+    const storedPath = String(metadata.payment_screenshot || "")
+  .replace(/^[/\\]+/, "")
+  .replace(/^uploads[/\\]+/, "");
+
+const absolutePath = path.resolve(
+  uploadRoot,
+  storedPath
+);
 
     /* Prevent path traversal */
 
@@ -1056,10 +1060,14 @@ export async function downloadSuperAdminPaymentScreenshot(
       });
     }
 
-    const absolutePath = path.resolve(
-      process.cwd(),
-      metadata.payment_screenshot
-    );
+    const storedPath = String(metadata.payment_screenshot || "")
+  .replace(/^[/\\]+/, "")
+  .replace(/^uploads[/\\]+/, "");
+
+const absolutePath = path.resolve(
+  uploadRoot,
+  storedPath
+);
 
     /* Prevent path traversal */
 
