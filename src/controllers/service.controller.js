@@ -151,7 +151,7 @@ export async function listServices(req, res, next) {
 
     const [rows] = await db.execute(
       `SELECT id, name, slug, short_description, description, category,
-              base_price, is_active, display_order
+              base_price, retailer_price, is_active, display_order
        FROM services
        WHERE is_active = 1
        ORDER BY display_order ASC, name ASC`,
@@ -167,6 +167,7 @@ export async function listServices(req, res, next) {
         description: service.description,
         category: service.category,
         basePrice: Number(service.base_price),
+        retailerPrice: Number(service.retailer_price),
         isActive: Boolean(service.is_active),
         displayOrder: service.display_order,
       })),
@@ -182,7 +183,7 @@ export async function getService(req, res, next) {
 
     const [rows] = await db.execute(
       `SELECT id, name, slug, short_description, description, category,
-              base_price, is_active, display_order
+              base_price, retailer_price, is_active, display_order
        FROM services
        WHERE slug = ? AND is_active = 1
        LIMIT 1`,
@@ -208,6 +209,7 @@ export async function getService(req, res, next) {
         description: service.description,
         category: service.category,
         basePrice: Number(service.base_price),
+        retailerPrice: Number(service.retailer_price),
         isActive: Boolean(service.is_active),
         displayOrder: service.display_order,
       },

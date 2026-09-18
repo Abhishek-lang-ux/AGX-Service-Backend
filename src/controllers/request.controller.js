@@ -9,6 +9,13 @@ function makeRequestNumber() {
   return `AGX-${stamp}-${random}`;
 }
 
+function getServicePrice(service, userRole) {
+  if (userRole === "retailer") {
+    return Number(service.retailer_price);
+  }
+  return Number(service.base_price);
+}
+
 function mapRequest(row) {
   return {
     id: row.id,
@@ -74,7 +81,7 @@ export async function createRequest(req, res, next) {
     if (serviceSlug) {
       // Slug is stable across environments and is the preferred identifier.
       [services] = await connection.execute(
-        `SELECT id, name, slug, base_price
+        `SELECT id, name, slug, base_price, retailer_price
          FROM services
          WHERE slug = ? AND is_active = 1
          LIMIT 1`,
@@ -82,7 +89,7 @@ export async function createRequest(req, res, next) {
       );
     } else {
       [services] = await connection.execute(
-        `SELECT id, name, slug, base_price
+        `SELECT id, name, slug, base_price, retailer_price
          FROM services
          WHERE id = ? AND is_active = 1
          LIMIT 1`,
@@ -111,7 +118,7 @@ export async function createRequest(req, res, next) {
         title,
         description,
         priority,
-        service.base_price,
+        getServicePrice(service, req.user.role),
       ],
     );
 
@@ -239,7 +246,7 @@ export async function submitRequestWithPayment(req, res, next) {
 
     if (serviceSlug) {
       [services] = await connection.execute(
-        `SELECT id, name, slug, base_price
+        `SELECT id, name, slug, base_price, retailer_price
          FROM services
          WHERE slug = ? AND is_active = 1
          LIMIT 1`,
@@ -247,7 +254,7 @@ export async function submitRequestWithPayment(req, res, next) {
       );
     } else {
       [services] = await connection.execute(
-        `SELECT id, name, slug, base_price
+        `SELECT id, name, slug, base_price, retailer_price
          FROM services
          WHERE id = ? AND is_active = 1
          LIMIT 1`,
@@ -263,7 +270,7 @@ export async function submitRequestWithPayment(req, res, next) {
     }
 
     const service = services[0];
-    const amount = Number(service.base_price);
+    const amount = getServicePrice(service, req.user.role);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({

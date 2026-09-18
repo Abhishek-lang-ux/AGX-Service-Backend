@@ -3,6 +3,9 @@ import { Router } from "express";
 import {
   getSuperAdminDashboard,
   getSuperAdminUsers,
+  getPendingRetailers,
+  updateRetailerApproval,
+  updateRetailerServicePrice,
   updateSuperAdminUserStatus,
   updateSuperAdminUserRole,
 
@@ -39,6 +42,14 @@ router.get("/dashboard", getSuperAdminDashboard);
 
 /* Users */
 router.get("/users", getSuperAdminUsers);
+router.get("/retailers/pending", getPendingRetailers);
+
+router.patch(
+  "/retailers/:id/approval",
+  updateRetailerApproval,
+);
+
+router.patch("/services/:id/retailer-price", updateRetailerServicePrice);
 
 router.patch(
   "/users/:id/status",

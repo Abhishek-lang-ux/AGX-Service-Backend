@@ -382,6 +382,135 @@ export async function getSuperAdminUsers(req, res, next) {
 }
 
 /* =========================================================
+   RETAILER APPLICATIONS
+========================================================= */
+
+export async function getPendingRetailers(req, res, next) {
+  try {
+    const [rows] = await db.execute(
+      `
+        SELECT
+          u.id,
+          u.uuid,
+          u.email,
+          u.role,
+          u.status,
+          u.created_at,
+          p.first_name,
+          p.last_name,
+          p.phone,
+          p.city,
+          p.state
+        FROM users u
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
+        WHERE u.role = 'retailer'
+          AND u.status = 'pending'
+        ORDER BY u.created_at ASC
+      `,
+    );
+
+    res.json({
+      success: true,
+      retailers: rows.map((retailer) => ({
+        id: retailer.id,
+        uuid: retailer.uuid,
+        email: retailer.email,
+        role: retailer.role,
+        status: retailer.status,
+        createdAt: retailer.created_at,
+        firstName: retailer.first_name ?? null,
+        lastName: retailer.last_name ?? null,
+        phone: retailer.phone ?? null,
+        city: retailer.city ?? null,
+        state: retailer.state ?? null,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateRetailerApproval(req, res, next) {
+  try {
+    const retailerId = Number(req.params.id);
+    const { action } = req.body;
+
+    if (!Number.isInteger(retailerId) || retailerId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid retailer ID.",
+      });
+    }
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Action must be approve or reject.",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `
+        SELECT id, role, status
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [retailerId],
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Retailer not found.",
+      });
+    }
+
+    const retailer = rows[0];
+
+    if (retailer.role !== "retailer") {
+      return res.status(400).json({
+        success: false,
+        message: "This user is not a retailer.",
+      });
+    }
+
+    if (retailer.status !== "pending") {
+      return res.status(409).json({
+        success: false,
+        message: `Retailer account is already ${retailer.status}.`,
+      });
+    }
+
+    const newStatus = action === "approve" ? "active" : "suspended";
+
+    await db.execute(
+      `
+        UPDATE users
+        SET status = ?, updated_at = NOW()
+        WHERE id = ?
+      `,
+      [newStatus, retailerId],
+    );
+
+    res.json({
+      success: true,
+      message:
+        action === "approve"
+          ? "Retailer approved successfully."
+          : "Retailer rejected successfully.",
+      retailer: {
+        id: retailerId,
+        status: newStatus,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/* =========================================================
    UPDATE USER STATUS
 ========================================================= */
 
@@ -1628,5 +1757,72 @@ export async function updateSuperAdminRequestStatus(
     if (connection) {
       connection.release();
     }
+  }
+}
+
+/* =========================================================
+   UPDATE RETAILER SERVICE PRICE
+========================================================= */
+
+export async function updateRetailerServicePrice(req, res, next) {
+  try {
+    const serviceId = Number(req.params.id);
+    const retailerPrice = Number(req.body?.retailerPrice);
+
+    if (!Number.isInteger(serviceId) || serviceId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid service ID.",
+      });
+    }
+
+    if (!Number.isFinite(retailerPrice) || retailerPrice < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid retailer price.",
+      });
+    }
+
+    const [result] = await db.execute(
+      `
+        UPDATE services
+        SET retailer_price = ?
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [retailerPrice, serviceId]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found.",
+      });
+    }
+
+    const [rows] = await db.execute(
+      `
+        SELECT id, name, base_price, retailer_price
+        FROM services
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [serviceId]
+    );
+
+    const service = rows[0];
+
+    res.json({
+      success: true,
+      message: "Retailer service price updated successfully.",
+      service: {
+        id: service.id,
+        name: service.name,
+        basePrice: Number(service.base_price),
+        retailerPrice: Number(service.retailer_price),
+      },
+    });
+  } catch (error) {
+    next(error);
   }
 }

@@ -5,3 +5,27 @@ node_modules/
 uploads/
 logs/
 npm-debug.log*
+
+# Local backup and temporary files
+*.backup
+*.backup*
+*.bak
+*.old
+*.before-*
+stderr.log
+stderr.log.old
+tmp/
+
+# Local backup and temporary files
+*.backup
+*.backup*
+*.bak
+*.old
+*.before-*
+stderr.log
+stderr.log.old
+tmp/
+
+node_modules
+*.bak*
+*.backup*

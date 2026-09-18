@@ -92,6 +92,83 @@ export async function register(req, res, next) {
   }
 }
 
+export async function registerRetailer(req, res, next) {
+  const connection = await db.getConnection();
+
+  try {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const password = String(req.body.password || "");
+    const firstName = String(req.body.firstName || "").trim();
+    const lastName = String(req.body.lastName || "").trim() || null;
+
+    if (!email || !password || !firstName) {
+      return res.status(400).json({
+        success: false,
+        message: "First name, email and password are required",
+      });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid email address",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters",
+      });
+    }
+
+    const [existing] = await connection.execute(
+      "SELECT id, role, status FROM users WHERE email = ? LIMIT 1",
+      [email],
+    );
+
+    if (existing.length) {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists",
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const uuid = randomUUID();
+
+    await connection.beginTransaction();
+
+    const [userResult] = await connection.execute(
+      `INSERT INTO users
+       (uuid, email, password_hash, role, status)
+       VALUES (?, ?, ?, 'retailer', 'pending')`,
+      [uuid, email, passwordHash],
+    );
+
+    await connection.execute(
+      `INSERT INTO profiles
+       (user_id, first_name, last_name)
+       VALUES (?, ?, ?)`,
+      [userResult.insertId, firstName, lastName],
+    );
+
+    await connection.commit();
+
+    res.status(201).json({
+      success: true,
+      message:
+        "Retailer registration submitted successfully. Your account is pending approval.",
+    });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally {
+    connection.release();
+  }
+}
+
+
 export async function login(req, res, next) {
   try {
     const email = String(req.body.email || "").trim().toLowerCase();
