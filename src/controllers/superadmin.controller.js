@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { db } from "../config/database.js";
 import { createNotification } from "./notification.controller.js";
 import fs from "node:fs/promises";
@@ -2057,58 +2058,119 @@ export async function updateRetailerServicePrice(req, res, next) {
    ========================================================= */
 
 export const createDistributor = async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
-    const connection = await db.getConnection();
+    const {
+      email,
+      password,
+      firstName = "",
+      lastName = "",
+      phone = ""
+    } = req.body;
 
-    try {
-      await connection.beginTransaction();
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const rawPassword = String(password || "");
 
-      const [rows] = await connection.query(
-        `SELECT distributor_code
-         FROM distributors
-         ORDER BY id DESC
-         LIMIT 1
-         FOR UPDATE`
-      );
-
-      let nextNumber = 1;
-
-      if (rows.length && rows[0].distributor_code) {
-        const match = rows[0].distributor_code.match(/AGX-D(\d+)/);
-        if (match) nextNumber = Number(match[1]) + 1;
-      }
-
-      const distributorCode = `AGX-D${String(nextNumber).padStart(3, "0")}`;
-
-      const [result] = await connection.query(
-        `INSERT INTO distributors (distributor_code, status)
-         VALUES (?, 'active')`,
-        [distributorCode]
-      );
-
-      await connection.commit();
-
-      return res.status(201).json({
-        success: true,
-        message: "Distributor created successfully",
-        distributor: {
-          id: result.insertId,
-          distributorCode,
-          status: "active"
-        }
+    if (!normalizedEmail || !rawPassword || !firstName) {
+      return res.status(400).json({
+        success: false,
+        message: "First name, email and password are required"
       });
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
     }
+
+    if (rawPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters"
+      });
+    }
+
+    await connection.beginTransaction();
+
+    const [existing] = await connection.query(
+      "SELECT id FROM users WHERE email = ? LIMIT 1",
+      [normalizedEmail]
+    );
+
+    if (existing.length) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists"
+      });
+    }
+
+    const [lastDistributor] = await connection.query(
+      `SELECT distributor_code
+       FROM distributors
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`
+    );
+
+    let nextNumber = 1;
+
+    if (lastDistributor.length && lastDistributor[0].distributor_code) {
+      const match = lastDistributor[0].distributor_code.match(/AGX-D(\\d+)/);
+      if (match) nextNumber = Number(match[1]) + 1;
+    }
+
+    const distributorCode =
+      `AGX-D${String(nextNumber).padStart(3, "0")}`;
+
+    const uuid = crypto.randomUUID();
+    const passwordHash = await bcrypt.hash(rawPassword, 12);
+
+    const [userResult] = await connection.query(
+      `INSERT INTO users
+       (uuid, email, password_hash, role, status, first_name, last_name, phone)
+       VALUES (?, ?, ?, 'distributor', 'active', ?, ?, ?)`,
+      [
+        uuid,
+        normalizedEmail,
+        passwordHash,
+        String(firstName).trim(),
+        String(lastName).trim(),
+        String(phone).trim()
+      ]
+    );
+
+    const [distributorResult] = await connection.query(
+      `INSERT INTO distributors
+       (user_id, distributor_code, status)
+       VALUES (?, ?, 'active')`,
+      [userResult.insertId, distributorCode]
+    );
+
+    await connection.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: "Distributor created successfully",
+      distributor: {
+        id: distributorResult.insertId,
+        userId: userResult.insertId,
+        distributorCode,
+        email: normalizedEmail,
+        firstName: String(firstName).trim(),
+        lastName: String(lastName).trim(),
+        status: "active"
+      }
+    });
   } catch (error) {
+    try {
+      await connection.rollback();
+    } catch {}
+
     console.error("createDistributor error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to create distributor"
     });
+  } finally {
+    connection.release();
   }
 };
 
