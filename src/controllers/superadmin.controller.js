@@ -2051,3 +2051,131 @@ export async function updateRetailerServicePrice(req, res, next) {
     next(error);
   }
 }
+
+/* =========================================================
+   DISTRIBUTOR MANAGEMENT
+   ========================================================= */
+
+export const createDistributor = async (req, res) => {
+  try {
+    const connection = await db.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [rows] = await connection.query(
+        `SELECT distributor_code
+         FROM distributors
+         ORDER BY id DESC
+         LIMIT 1
+         FOR UPDATE`
+      );
+
+      let nextNumber = 1;
+
+      if (rows.length && rows[0].distributor_code) {
+        const match = rows[0].distributor_code.match(/AGX-D(\d+)/);
+        if (match) nextNumber = Number(match[1]) + 1;
+      }
+
+      const distributorCode = `AGX-D${String(nextNumber).padStart(3, "0")}`;
+
+      const [result] = await connection.query(
+        `INSERT INTO distributors (distributor_code, status)
+         VALUES (?, 'active')`,
+        [distributorCode]
+      );
+
+      await connection.commit();
+
+      return res.status(201).json({
+        success: true,
+        message: "Distributor created successfully",
+        distributor: {
+          id: result.insertId,
+          distributorCode,
+          status: "active"
+        }
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("createDistributor error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create distributor"
+    });
+  }
+};
+
+export const getDistributors = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        d.id,
+        d.user_id,
+        d.distributor_code,
+        d.status,
+        d.created_at,
+        d.updated_at
+      FROM distributors d
+      ORDER BY d.id DESC
+    `);
+
+    return res.json({
+      success: true,
+      distributors: rows
+    });
+  } catch (error) {
+    console.error("getDistributors error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch distributors"
+    });
+  }
+};
+
+export const updateDistributorStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const allowedStatuses = ["pending", "active", "suspended", "inactive"];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid distributor status"
+      });
+    }
+
+    const [result] = await db.query(
+      `UPDATE distributors
+       SET status = ?
+       WHERE id = ?`,
+      [status, id]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(404).json({
+        success: false,
+        message: "Distributor not found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Distributor status updated successfully"
+    });
+  } catch (error) {
+    console.error("updateDistributorStatus error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update distributor status"
+    });
+  }
+};

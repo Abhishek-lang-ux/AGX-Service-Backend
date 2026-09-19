@@ -1,5 +1,6 @@
 import { documentUpload } from "../config/uploads.js";
 import { Router } from "express";
+import { createDistributor, getDistributors, updateDistributorStatus } from "../controllers/superadmin.controller.js";
 
 import {
   getSuperAdminDashboard,
@@ -147,3 +148,9 @@ router.patch("/requests/:id/status", clientScope, updateSuperAdminRequestStatus)
 router.post("/requests/:id/final-receipt", clientScope, documentUpload.single("finalReceipt"), uploadFinalReceipt);
 
 export default router;
+
+  
+// Distributor Management
+router.get("/distributors", getDistributors);
+router.post("/distributors", createDistributor);
+router.patch("/distributors/:id/status", updateDistributorStatus);
