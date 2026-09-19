@@ -385,6 +385,34 @@ export async function getSuperAdminUsers(req, res, next) {
    RETAILER APPLICATIONS
 ========================================================= */
 
+export async function getSuperAdminRetailers(req, res, next) {
+  try {
+    const [rows] = await db.execute(`
+      SELECT
+        u.id,
+        u.email,
+        u.status,
+        u.created_at,
+        p.first_name,
+        p.last_name,
+        p.phone
+      FROM users u
+      LEFT JOIN profiles p
+        ON p.user_id = u.id
+      WHERE u.role = "retailer"
+      ORDER BY u.created_at DESC
+    `);
+
+    res.json({
+      success: true,
+      retailers: rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+
 export async function getPendingRetailers(req, res, next) {
   try {
     const [rows] = await db.execute(
@@ -702,8 +730,9 @@ export async function getSuperAdminDocuments(
       LEFT JOIN services s
         ON s.id = r.service_id
 
+      WHERE u.role = ?
       ORDER BY d.created_at DESC
-    `);
+    `, [req.superAdminScopeRole || "client"]);
 
     res.json({
       success: true,
@@ -770,11 +799,16 @@ export async function viewSuperAdminDocument(
           original_name,
           storage_path,
           mime_type
-        FROM request_documents
-        WHERE id = ?
+        FROM request_documents d
+        INNER JOIN requests r
+          ON r.id = d.request_id
+        INNER JOIN users u
+          ON u.id = r.user_id
+        WHERE d.id = ?
+          AND u.role = ?
         LIMIT 1
       `,
-      [documentId]
+      [documentId, req.superAdminScopeRole || "client"]
     );
 
     if (!rows.length) {
@@ -864,14 +898,19 @@ export async function downloadSuperAdminDocument(
     const [rows] = await db.execute(
       `
         SELECT
-          original_name,
-          storage_path,
-          mime_type
-        FROM request_documents
-        WHERE id = ?
+          d.original_name,
+          d.storage_path,
+          d.mime_type
+        FROM request_documents d
+        INNER JOIN requests r
+          ON r.id = d.request_id
+        INNER JOIN users u
+          ON u.id = r.user_id
+        WHERE d.id = ?
+          AND u.role = ?
         LIMIT 1
       `,
-      [documentId]
+      [documentId, req.superAdminScopeRole || "client"]
     );
 
     if (!rows.length) {
@@ -991,8 +1030,10 @@ export async function getSuperAdminPayments(req, res, next) {
       LEFT JOIN services s
         ON s.id = r.service_id
 
+      WHERE u.role = ?
+
       ORDER BY p.created_at DESC
-    `);
+    `, [req.superAdminScopeRole || "client"]);
 
     res.json({
       success: true,
@@ -1066,11 +1107,14 @@ export async function viewSuperAdminPaymentScreenshot(
       `
         SELECT
           metadata
-        FROM payments
-        WHERE id = ?
+        FROM payments p
+        INNER JOIN users u
+          ON u.id = p.user_id
+        WHERE p.id = ?
+          AND u.role = ?
         LIMIT 1
       `,
-      [paymentId]
+      [paymentId, req.superAdminScopeRole || "client"]
     );
 
     if (!rows.length) {
@@ -1166,11 +1210,14 @@ export async function downloadSuperAdminPaymentScreenshot(
       `
         SELECT
           metadata
-        FROM payments
-        WHERE id = ?
+        FROM payments p
+        INNER JOIN users u
+          ON u.id = p.user_id
+        WHERE p.id = ?
+          AND u.role = ?
         LIMIT 1
       `,
-      [paymentId]
+      [paymentId, req.superAdminScopeRole || "client"]
     );
 
     if (!rows.length) {
@@ -1286,15 +1333,18 @@ export async function updateSuperAdminPaymentStatus(
           r.request_number,
           s.name AS service_name
         FROM payments p
+        INNER JOIN users u
+          ON u.id = p.user_id
         INNER JOIN requests r
           ON r.id = p.request_id
         INNER JOIN services s
           ON s.id = r.service_id
         WHERE p.id = ?
+          AND u.role = ?
         LIMIT 1
         FOR UPDATE
       `,
-      [paymentId]
+      [paymentId, req.superAdminScopeRole || "client"]
     );
 
     if (!paymentRows.length) {
@@ -1329,9 +1379,11 @@ export async function updateSuperAdminPaymentStatus(
             status = 'paid',
             paid_at = NOW(),
             updated_at = NOW()
-          WHERE id = ?
+          WHERE p.id = ?
+          AND u.role = ?
+          AND u.role = ?
         `,
-        [paymentId]
+        [paymentId, req.superAdminScopeRole || "client"]
       );
 
       /*
@@ -1362,9 +1414,11 @@ export async function updateSuperAdminPaymentStatus(
           SET
             status = 'rejected',
             updated_at = NOW()
-          WHERE id = ?
+          WHERE p.id = ?
+          AND u.role = ?
+          AND u.role = ?
         `,
-        [paymentId]
+        [paymentId, req.superAdminScopeRole || "client"]
       );
 
       const cleanReason = String(
@@ -1422,8 +1476,9 @@ export async function getSuperAdminRequests(req, res, next) {
   try {
     const { search = "", status = "" } = req.query;
 
-    const conditions = [];
-    const values = [];
+    const conditions = ["u.role = ?"];
+    const values = [req.superAdminScopeRole || "client"];
+
 
     if (search.trim()) {
       const searchTerm = `%${search.trim()}%`;
@@ -1570,9 +1625,10 @@ export async function getSuperAdminRequest(req, res, next) {
           ON s.id = r.service_id
 
         WHERE r.id = ?
+          AND u.role = ?
         LIMIT 1
       `,
-      [requestId]
+      [requestId, req.superAdminScopeRole || "client"]
     );
 
     if (!rows.length) {
@@ -1591,7 +1647,7 @@ export async function getSuperAdminRequest(req, res, next) {
         WHERE request_id = ?
         ORDER BY created_at DESC
       `,
-      [requestId]
+      [requestId, req.superAdminScopeRole || "client"]
     );
 
     const [documents] = await db.execute(
@@ -1601,7 +1657,7 @@ export async function getSuperAdminRequest(req, res, next) {
         WHERE request_id = ?
         ORDER BY created_at DESC
       `,
-      [requestId]
+      [requestId, req.superAdminScopeRole || "client"]
     );
 
     res.json({
@@ -1699,11 +1755,14 @@ export async function updateSuperAdminRequestStatus(
           r.user_id,
           r.status
         FROM requests r
+        INNER JOIN users u
+          ON u.id = r.user_id
         WHERE r.id = ?
+          AND u.role = ?
         LIMIT 1
         FOR UPDATE
       `,
-      [requestId]
+      [requestId, req.superAdminScopeRole || "client"]
     );
 
     if (!rows.length) {

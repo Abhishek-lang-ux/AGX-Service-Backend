@@ -3,6 +3,7 @@ import { Router } from "express";
 import {
   getSuperAdminDashboard,
   getSuperAdminUsers,
+  getSuperAdminRetailers,
   getPendingRetailers,
   updateRetailerApproval,
   updateRetailerServicePrice,
@@ -29,6 +30,16 @@ import {
 
 const router = Router();
 
+const clientScope = (req, res, next) => {
+  req.superAdminScopeRole = "client";
+  next();
+};
+
+const retailerScope = (req, res, next) => {
+  req.superAdminScopeRole = "retailer";
+  next();
+};
+
 /*
  * All SuperAdmin routes require:
  * 1. Authentication
@@ -42,6 +53,7 @@ router.get("/dashboard", getSuperAdminDashboard);
 
 /* Users */
 router.get("/users", getSuperAdminUsers);
+router.get("/retailers", getSuperAdminRetailers);
 router.get("/retailers/pending", getPendingRetailers);
 
 router.patch(
@@ -66,17 +78,17 @@ router.patch(
 ========================================================= */
 
 router.get(
-  "/documents",
+  "/documents", clientScope,
   getSuperAdminDocuments,
 );
 
 router.get(
-  "/documents/:id/view",
+  "/documents/:id/view", clientScope,
   viewSuperAdminDocument,
 );
 
 router.get(
-  "/documents/:id/download",
+  "/documents/:id/download", clientScope,
   downloadSuperAdminDocument,
 );
 
@@ -85,28 +97,50 @@ router.get(
 ========================================================= */
 
 router.get(
-  "/payments",
+  "/payments", clientScope,
   getSuperAdminPayments,
 );
 
 router.get(
-  "/payments/:id/view",
+  "/payments/:id/view", clientScope,
   viewSuperAdminPaymentScreenshot,
 );
 
 router.get(
-  "/payments/:id/download",
+  "/payments/:id/download", clientScope,
   downloadSuperAdminPaymentScreenshot,
 );
 
 router.patch(
-  "/payments/:id/status",
+  "/payments/:id/status", clientScope,
   updateSuperAdminPaymentStatus,
 );
 
-export default router;
+/* =========================================================
+   RETAILER MANAGEMENT - REQUESTS, DOCUMENTS, PAYMENTS
+========================================================= */
 
-/* REQUESTS */
-router.get("/requests", getSuperAdminRequests);
-router.get("/requests/:id", getSuperAdminRequest);
-router.patch("/requests/:id/status", updateSuperAdminRequestStatus);
+router.get("/retailers/requests", retailerScope, getSuperAdminRequests);
+router.get("/retailers/requests/:id", retailerScope, getSuperAdminRequest);
+router.patch("/retailers/requests/:id/status", retailerScope, updateSuperAdminRequestStatus);
+
+router.get("/retailers/documents", retailerScope, getSuperAdminDocuments);
+router.get("/retailers/documents/:id/view", retailerScope, viewSuperAdminDocument);
+router.get("/retailers/documents/:id/download", retailerScope, downloadSuperAdminDocument);
+
+router.get("/retailers/payments", retailerScope, getSuperAdminPayments);
+router.get("/retailers/payments/:id/view", retailerScope, viewSuperAdminPaymentScreenshot);
+router.get("/retailers/payments/:id/download", retailerScope, downloadSuperAdminPaymentScreenshot);
+router.patch("/retailers/payments/:id/status", retailerScope, updateSuperAdminPaymentStatus);
+
+
+
+/* =========================================================
+   CLIENT REQUESTS
+========================================================= */
+
+router.get("/requests", clientScope, getSuperAdminRequests);
+router.get("/requests/:id", clientScope, getSuperAdminRequest);
+router.patch("/requests/:id/status", clientScope, updateSuperAdminRequestStatus);
+
+export default router;
