@@ -1,3 +1,4 @@
+import { documentUpload } from "../config/uploads.js";
 import { Router } from "express";
 
 import {
@@ -123,6 +124,7 @@ router.patch(
 router.get("/retailers/requests", retailerScope, getSuperAdminRequests);
 router.get("/retailers/requests/:id", retailerScope, getSuperAdminRequest);
 router.patch("/retailers/requests/:id/status", retailerScope, updateSuperAdminRequestStatus);
+router.post("/retailers/requests/:id/final-receipt", retailerScope, documentUpload.single("finalReceipt"), uploadFinalReceipt);
 
 router.get("/retailers/documents", retailerScope, getSuperAdminDocuments);
 router.get("/retailers/documents/:id/view", retailerScope, viewSuperAdminDocument);
@@ -142,5 +144,6 @@ router.patch("/retailers/payments/:id/status", retailerScope, updateSuperAdminPa
 router.get("/requests", clientScope, getSuperAdminRequests);
 router.get("/requests/:id", clientScope, getSuperAdminRequest);
 router.patch("/requests/:id/status", clientScope, updateSuperAdminRequestStatus);
+router.post("/requests/:id/final-receipt", clientScope, documentUpload.single("finalReceipt"), uploadFinalReceipt);
 
 export default router;

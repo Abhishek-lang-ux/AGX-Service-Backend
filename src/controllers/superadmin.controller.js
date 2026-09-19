@@ -1707,6 +1707,172 @@ export async function getSuperAdminRequest(req, res, next) {
    UPDATE REQUEST STATUS
 ========================================================= */
 
+
+/* =========================================================
+   UPLOAD FINAL RECEIPT
+========================================================= */
+
+export async function uploadFinalReceipt(req, res, next) {
+  try {
+    const requestId = Number(req.params.id);
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      if (req.file?.path) {
+        try {
+          await fs.unlink(req.file.path);
+        } catch {}
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request ID.",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload a final receipt file.",
+      });
+    }
+
+    const [requestRows] = await db.execute(
+      `
+        SELECT
+          r.id,
+          r.user_id,
+          r.request_number,
+          r.status
+        FROM requests r
+        INNER JOIN users u
+          ON u.id = r.user_id
+        WHERE r.id = ?
+          AND u.role = ?
+        LIMIT 1
+      `,
+      [requestId, req.superAdminScopeRole || "client"]
+    );
+
+    if (!requestRows.length) {
+      try {
+        await fs.unlink(req.file.path);
+      } catch {}
+
+      return res.status(404).json({
+        success: false,
+        message: "Request not found.",
+      });
+    }
+
+    const request = requestRows[0];
+
+    if (request.status !== "completed") {
+      try {
+        await fs.unlink(req.file.path);
+      } catch {}
+
+      return res.status(400).json({
+        success: false,
+        message: "Final receipt can only be uploaded for a completed request.",
+      });
+    }
+
+    const [oldReceiptRows] = await db.execute(
+      `
+        SELECT
+          id,
+          storage_path
+        FROM request_documents
+        WHERE request_id = ?
+          AND document_type = 'final_receipt'
+        ORDER BY id DESC
+      `,
+      [requestId]
+    );
+
+    const storagePath = path.relative(
+      process.cwd(),
+      req.file.path
+    ).replace(/\\/g, "/");
+
+    const [insertResult] = await db.execute(
+      `
+        INSERT INTO request_documents
+          (
+            request_id,
+            uploaded_by,
+            original_name,
+            stored_name,
+            storage_path,
+            mime_type,
+            file_size,
+            document_type,
+            status
+          )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'final_receipt', 'verified')
+      `,
+      [
+        requestId,
+        req.user.id,
+        req.file.originalname,
+        req.file.filename,
+        storagePath,
+        req.file.mimetype,
+        req.file.size,
+      ]
+    );
+
+    for (const oldReceipt of oldReceiptRows) {
+      await db.execute(
+        "DELETE FROM request_documents WHERE id = ?",
+        [oldReceipt.id]
+      );
+
+      if (oldReceipt.storage_path) {
+        const oldPath = path.resolve(
+          process.cwd(),
+          oldReceipt.storage_path
+        );
+
+        if (oldPath.startsWith(uploadRoot)) {
+          try {
+            await fs.unlink(oldPath);
+          } catch {}
+        }
+      }
+    }
+
+    await createNotification({
+      userId: request.user_id,
+      type: "request",
+      title: "Final receipt available",
+      message: `Final receipt for request ${request.request_number} is now available.`,
+      link: `/request-details/${requestId}`,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Final receipt uploaded successfully.",
+      receipt: {
+        id: insertResult.insertId,
+        requestId,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        documentType: "final_receipt",
+      },
+    });
+  } catch (error) {
+    if (req.file?.path) {
+      try {
+        await fs.unlink(req.file.path);
+      } catch {}
+    }
+
+    next(error);
+  }
+}
+
 export async function updateSuperAdminRequestStatus(
   req,
   res,
