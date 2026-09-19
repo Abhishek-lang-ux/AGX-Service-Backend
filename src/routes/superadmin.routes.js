@@ -23,6 +23,7 @@ import {
   getSuperAdminRequests,
   getSuperAdminRequest,
   updateSuperAdminRequestStatus,
+    uploadFinalReceipt,
 } from "../controllers/superadmin.controller.js";
 
 import {
