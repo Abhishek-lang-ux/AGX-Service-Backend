@@ -1,3 +1,4 @@
+import { creditDistributorCommission } from "../services/distributorCommission.service.js";
 import bcrypt from "bcryptjs";
 import { db } from "../config/database.js";
 import { createNotification } from "./notification.controller.js";
@@ -625,6 +626,8 @@ export async function updateSuperAdminUserRole(
 
     const allowedRoles = [
       "client",
+      "retailer",
+      "distributor",
       "staff",
       "admin",
       "superadmin",
@@ -678,6 +681,163 @@ export async function updateSuperAdminUserRole(
     });
   } catch (error) {
     next(error);
+  }
+}
+
+/* =========================================================
+   SUPERADMIN USER ACTIONS
+========================================================= */
+
+export async function resetSuperAdminUserPassword(req, res, next) {
+  try {
+    const userId = Number(req.params.id);
+    const password = String(req.body?.password || "");
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    if (userId === Number(req.user.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot reset your own password from User Management.",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters.",
+      });
+    }
+
+    const [rows] = await db.execute(
+      "SELECT id, role FROM users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    if (rows[0].role === "superadmin") {
+      return res.status(403).json({
+        success: false,
+        message: "SuperAdmin password cannot be reset from User Management.",
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    await db.execute(
+      "UPDATE users SET password_hash = ?, failed_login_attempts = 0 WHERE id = ?",
+      [passwordHash, userId]
+    );
+
+    return res.json({
+      success: true,
+      message: "User password reset successfully.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteSuperAdminUser(req, res, next) {
+  let connection;
+
+  try {
+    const userId = Number(req.params.id);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    if (userId === Number(req.user.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot delete your own account.",
+      });
+    }
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute(
+      "SELECT id, role FROM users WHERE id = ? FOR UPDATE",
+      [userId]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    if (rows[0].role === "superadmin") {
+      await connection.rollback();
+
+      return res.status(403).json({
+        success: false,
+        message: "SuperAdmin accounts cannot be deleted.",
+      });
+    }
+
+    const [result] = await connection.execute(
+      "DELETE FROM users WHERE id = ?",
+      [userId]
+    );
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    await connection.commit();
+
+    return res.json({
+      success: true,
+      message: "User deleted successfully.",
+    });
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch {}
+    }
+
+    if (
+      error?.errno === 1451 ||
+      error?.code === "ER_ROW_IS_REFERENCED_2"
+    ) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "This user has linked business records and cannot be deleted. Suspend or deactivate the user instead.",
+      });
+    }
+
+    next(error);
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 }
 
@@ -806,7 +966,6 @@ export async function viewSuperAdminDocument(
         INNER JOIN users u
           ON u.id = r.user_id
         WHERE d.id = ?
-          AND u.role = ?
         LIMIT 1
       `,
       [documentId, req.superAdminScopeRole || "client"]
@@ -908,7 +1067,6 @@ export async function downloadSuperAdminDocument(
         INNER JOIN users u
           ON u.id = r.user_id
         WHERE d.id = ?
-          AND u.role = ?
         LIMIT 1
       `,
       [documentId, req.superAdminScopeRole || "client"]
@@ -1111,11 +1269,10 @@ export async function viewSuperAdminPaymentScreenshot(
         FROM payments p
         INNER JOIN users u
           ON u.id = p.user_id
-        WHERE p.id = ?
-          AND u.role = ?
+        WHERE id = ?
         LIMIT 1
       `,
-      [paymentId, req.superAdminScopeRole || "client"]
+      [paymentId]
     );
 
     if (!rows.length) {
@@ -1214,11 +1371,10 @@ export async function downloadSuperAdminPaymentScreenshot(
         FROM payments p
         INNER JOIN users u
           ON u.id = p.user_id
-        WHERE p.id = ?
-          AND u.role = ?
+        WHERE id = ?
         LIMIT 1
       `,
-      [paymentId, req.superAdminScopeRole || "client"]
+      [paymentId]
     );
 
     if (!rows.length) {
@@ -1341,11 +1497,10 @@ export async function updateSuperAdminPaymentStatus(
         INNER JOIN services s
           ON s.id = r.service_id
         WHERE p.id = ?
-          AND u.role = ?
         LIMIT 1
         FOR UPDATE
       `,
-      [paymentId, req.superAdminScopeRole || "client"]
+      [paymentId]
     );
 
     if (!paymentRows.length) {
@@ -1380,12 +1535,16 @@ export async function updateSuperAdminPaymentStatus(
             status = 'paid',
             paid_at = NOW(),
             updated_at = NOW()
-          WHERE p.id = ?
-          AND u.role = ?
-          AND u.role = ?
+          WHERE id = ?
         `,
-        [paymentId, req.superAdminScopeRole || "client"]
+        [paymentId]
       );
+
+      /*
+       * Credit distributor commission only after payment is successfully marked paid.
+       * Uses the same DB transaction to keep payment and wallet consistent.
+       */
+      await creditDistributorCommission(connection, paymentId);
 
       /*
        * Keep request status as pending for now.
@@ -1415,11 +1574,9 @@ export async function updateSuperAdminPaymentStatus(
           SET
             status = 'rejected',
             updated_at = NOW()
-          WHERE p.id = ?
-          AND u.role = ?
-          AND u.role = ?
+          WHERE id = ?
         `,
-        [paymentId, req.superAdminScopeRole || "client"]
+        [paymentId]
       );
 
       const cleanReason = String(
@@ -1626,7 +1783,6 @@ export async function getSuperAdminRequest(req, res, next) {
           ON s.id = r.service_id
 
         WHERE r.id = ?
-          AND u.role = ?
         LIMIT 1
       `,
       [requestId, req.superAdminScopeRole || "client"]
@@ -1748,7 +1904,6 @@ export async function uploadFinalReceipt(req, res, next) {
         INNER JOIN users u
           ON u.id = r.user_id
         WHERE r.id = ?
-          AND u.role = ?
         LIMIT 1
       `,
       [requestId, req.superAdminScopeRole || "client"]
@@ -1925,7 +2080,6 @@ export async function updateSuperAdminRequestStatus(
         INNER JOIN users u
           ON u.id = r.user_id
         WHERE r.id = ?
-          AND u.role = ?
         LIMIT 1
         FOR UPDATE
       `,
@@ -2104,7 +2258,7 @@ export const createDistributor = async (req, res) => {
     const [lastDistributor] = await connection.query(
       `SELECT distributor_code
        FROM distributors
-       ORDER BY id DESC
+       WHERE distributor_code REGEXP '^AGX-D[0-9]+$' ORDER BY CAST(SUBSTRING(distributor_code,6) AS UNSIGNED) DESC
        LIMIT 1
        FOR UPDATE`
     );
@@ -2112,7 +2266,7 @@ export const createDistributor = async (req, res) => {
     let nextNumber = 1;
 
     if (lastDistributor.length && lastDistributor[0].distributor_code) {
-      const match = lastDistributor[0].distributor_code.match(/AGX-D(\\d+)/);
+      const match = lastDistributor[0].distributor_code.match(/AGX-D(\d+)/);
       if (match) nextNumber = Number(match[1]) + 1;
     }
 
@@ -2124,12 +2278,21 @@ export const createDistributor = async (req, res) => {
 
     const [userResult] = await connection.query(
       `INSERT INTO users
-       (uuid, email, password_hash, role, status, first_name, last_name, phone)
-       VALUES (?, ?, ?, 'distributor', 'active', ?, ?, ?)`,
+       (uuid, email, password_hash, role, status)
+       VALUES (?, ?, ?, 'distributor', 'active')`,
       [
         uuid,
         normalizedEmail,
-        passwordHash,
+        passwordHash
+      ]
+    );
+
+    await connection.query(
+      `INSERT INTO profiles
+       (user_id, first_name, last_name, phone)
+       VALUES (?, ?, ?, ?)`,
+      [
+        userResult.insertId,
         String(firstName).trim(),
         String(lastName).trim(),
         String(phone).trim()
@@ -2174,6 +2337,141 @@ export const createDistributor = async (req, res) => {
   }
 };
 
+export const getPendingDistributors = async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT u.id,u.uuid,u.email,u.role,u.status,u.created_at,p.first_name,p.last_name,p.phone,d.id AS distributor_id,d.distributor_code FROM users u INNER JOIN profiles p ON p.user_id=u.id INNER JOIN distributors d ON d.user_id=u.id WHERE u.role='distributor' AND u.status='pending' AND d.status='pending' ORDER BY u.created_at ASC"
+    );
+    return res.json({
+      success: true,
+      distributors: rows.map((row) => ({
+        id: row.id,
+        uuid: row.uuid,
+        email: row.email,
+        role: row.role,
+        status: row.status,
+        createdAt: row.created_at,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        phone: row.phone,
+        distributorId: row.distributor_id,
+        distributorCode: row.distributor_code,
+      })),
+    });
+  } catch (error) {
+    console.error("getPendingDistributors error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending distributor applications",
+    });
+  }
+};
+
+export const updateDistributorApproval = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const userId = Number(req.params.id);
+    const { action } = req.body;
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid distributor application",
+      });
+    }
+
+    if (action !== "approve" && action !== "reject") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid action",
+      });
+    }
+
+    await connection.beginTransaction();
+
+    const [rows] = await connection.query(
+      "SELECT u.id,d.id AS distributor_id FROM users u INNER JOIN distributors d ON d.user_id=u.id WHERE u.id=? AND u.role='distributor' AND u.status='pending' AND d.status='pending' FOR UPDATE",
+      [userId]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Pending distributor application not found",
+      });
+    }
+
+    if (action === "reject") {
+      await connection.query(
+        "UPDATE users SET status='suspended' WHERE id=?",
+        [userId]
+      );
+
+      await connection.query(
+        "UPDATE distributors SET status='suspended' WHERE user_id=?",
+        [userId]
+      );
+
+      await connection.commit();
+
+      return res.json({
+        success: true,
+        message: "Distributor application rejected",
+      });
+    }
+
+    const [codes] = await connection.query(
+      "SELECT distributor_code FROM distributors WHERE distributor_code REGEXP '^AGX-D[0-9]+$' ORDER BY CAST(SUBSTRING(distributor_code,6) AS UNSIGNED) DESC LIMIT 1 FOR UPDATE"
+    );
+
+    let nextNumber = 1;
+
+    if (codes.length) {
+      const match = String(codes[0].distributor_code).match(/^AGX-D(\d+)$/i);
+      if (match) nextNumber = Number(match[1]) + 1;
+    }
+
+    const distributorCode = `AGX-D${String(nextNumber).padStart(3, "0")}`;
+
+    await connection.query(
+      "UPDATE distributors SET distributor_code=?,status='active' WHERE user_id=?",
+      [distributorCode, userId]
+    );
+
+    await connection.query(
+      "UPDATE users SET status='active' WHERE id=?",
+      [userId]
+    );
+
+    await connection.commit();
+
+    return res.json({
+      success: true,
+      message: "Distributor approved successfully",
+      distributor: {
+        id: userId,
+        distributorCode,
+      },
+    });
+
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch {}
+
+    console.error("updateDistributorApproval error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update distributor application",
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 export const getDistributors = async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -2202,6 +2500,8 @@ export const getDistributors = async (req, res) => {
 };
 
 export const updateDistributorStatus = async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -2215,29 +2515,594 @@ export const updateDistributorStatus = async (req, res) => {
       });
     }
 
-    const [result] = await db.query(
-      `UPDATE distributors
-       SET status = ?
-       WHERE id = ?`,
-      [status, id]
+    await connection.beginTransaction();
+
+    const [distributors] = await connection.query(
+      `SELECT id, user_id
+       FROM distributors
+       WHERE id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [id]
     );
 
-    if (!result.affectedRows) {
+    if (!distributors.length) {
+      await connection.rollback();
+
       return res.status(404).json({
         success: false,
         message: "Distributor not found"
       });
     }
 
+    const userId = distributors[0].user_id;
+
+    await connection.query(
+      `UPDATE distributors
+       SET status = ?
+       WHERE id = ?`,
+      [status, id]
+    );
+
+    if (userId) {
+      await connection.query(
+        `UPDATE users
+         SET status = ?
+         WHERE id = ?`,
+        [status, userId]
+      );
+    }
+
+    await connection.commit();
+
     return res.json({
       success: true,
-      message: "Distributor status updated successfully"
+      message: "Distributor status updated successfully",
+      status
     });
   } catch (error) {
+    try {
+      await connection.rollback();
+    } catch {}
+
     console.error("updateDistributorStatus error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to update distributor status"
     });
+  } finally {
+    connection.release();
   }
 };
+
+/* =========================================================
+   DISTRIBUTOR WITHDRAWALS - SUPERADMIN
+========================================================= */
+
+export async function getDistributorWithdrawalRequests(req, res, next) {
+  try {
+    const [rows] = await db.execute(
+      `
+        SELECT
+          w.id,
+          w.distributor_id,
+          d.distributor_code,
+          w.amount,
+          w.status,
+          w.account_holder_name,
+          w.account_number,
+          w.ifsc_code,
+          w.bank_name,
+          w.branch_name,
+          w.requested_at,
+          w.approved_at,
+          w.rejected_at,
+          w.paid_at,
+          w.rejection_reason,
+          w.transfer_reference,
+          w.admin_note,
+          p.first_name,
+          p.last_name,
+          u.email,
+          p.phone
+        FROM distributor_withdrawal_requests w
+        INNER JOIN distributors d
+          ON d.id = w.distributor_id
+        INNER JOIN users u
+          ON u.id = d.user_id
+        LEFT JOIN profiles p
+          ON p.user_id = u.id
+        ORDER BY w.created_at DESC, w.id DESC
+        LIMIT 200
+      `,
+    );
+
+    res.json({
+      success: true,
+      withdrawals: rows.map((row) => ({
+        id: row.id,
+        distributorId: row.distributor_id,
+        distributorCode: row.distributor_code,
+        distributorName:
+          [row.first_name, row.last_name].filter(Boolean).join(" ") ||
+          row.email,
+        email: row.email,
+        phone: row.phone,
+        amount: Number(row.amount || 0),
+        status: row.status,
+        accountHolderName: row.account_holder_name,
+        accountNumber: row.account_number,
+        ifscCode: row.ifsc_code,
+        bankName: row.bank_name,
+        branchName: row.branch_name,
+        requestedAt: row.requested_at,
+        approvedAt: row.approved_at,
+        rejectedAt: row.rejected_at,
+        paidAt: row.paid_at,
+        rejectionReason: row.rejection_reason,
+        transferReference: row.transfer_reference,
+        adminNote: row.admin_note,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateDistributorWithdrawalStatus(req, res, next) {
+  let connection;
+
+  try {
+    const withdrawalId = Number(req.params.id);
+    const status = String(req.body?.status || "").trim().toLowerCase();
+    const rejectionReason = String(
+      req.body?.rejectionReason || "",
+    ).trim();
+    const transferReference = String(
+      req.body?.transferReference || "",
+    ).trim();
+    const adminNote = String(req.body?.adminNote || "").trim();
+
+    if (!Number.isInteger(withdrawalId) || withdrawalId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid withdrawal ID.",
+      });
+    }
+
+    if (!["approved", "rejected", "paid"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid withdrawal status.",
+      });
+    }
+
+    if (status === "rejected" && !rejectionReason) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason is required.",
+      });
+    }
+
+    if (status === "paid" && !transferReference) {
+      return res.status(400).json({
+        success: false,
+        message: "Transfer reference is required before marking paid.",
+      });
+    }
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [withdrawalRows] = await connection.execute(
+      `
+        SELECT
+          w.id,
+          w.distributor_id,
+          w.amount,
+          w.status,
+          d.distributor_code
+        FROM distributor_withdrawal_requests w
+        INNER JOIN distributors d
+          ON d.id = w.distributor_id
+        WHERE w.id = ?
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [withdrawalId],
+    );
+
+    if (!withdrawalRows.length) {
+      await connection.rollback();
+
+      return res.status(404).json({
+        success: false,
+        message: "Withdrawal request not found.",
+      });
+    }
+
+    const withdrawal = withdrawalRows[0];
+    const amount = Number(withdrawal.amount);
+
+    if (status === "approved") {
+      if (withdrawal.status !== "pending") {
+        await connection.rollback();
+
+        return res.status(409).json({
+          success: false,
+          message:
+            `Only pending withdrawals can be approved. Current status: ${withdrawal.status}.`,
+        });
+      }
+
+      await connection.execute(
+        `
+          UPDATE distributor_withdrawal_requests
+          SET
+            status = 'approved',
+            approved_at = NOW(),
+            approved_by = ?,
+            admin_note = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `,
+        [
+          Number(req.user?.id || req.user?.sub),
+          adminNote || null,
+          withdrawalId,
+        ],
+      );
+    }
+
+    if (status === "rejected") {
+      if (!["pending", "approved"].includes(withdrawal.status)) {
+        await connection.rollback();
+
+        return res.status(409).json({
+          success: false,
+          message:
+            `This withdrawal cannot be rejected from status: ${withdrawal.status}.`,
+        });
+      }
+
+      const [walletRows] = await connection.execute(
+        `
+          SELECT available_balance, pending_balance
+          FROM distributor_wallets
+          WHERE distributor_id = ?
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [withdrawal.distributor_id],
+      );
+
+      const pendingBalance = Number(
+        walletRows[0]?.pending_balance || 0,
+      );
+
+      if (pendingBalance < amount) {
+        await connection.rollback();
+
+        return res.status(409).json({
+          success: false,
+          message: "Wallet pending balance is insufficient for reversal.",
+        });
+      }
+
+      await connection.execute(
+        `
+          UPDATE distributor_wallets
+          SET
+            available_balance = available_balance + ?,
+            pending_balance = pending_balance - ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE distributor_id = ?
+        `,
+        [amount, amount, withdrawal.distributor_id],
+      );
+
+      await connection.execute(
+        `
+          UPDATE distributor_withdrawal_requests
+          SET
+            status = 'rejected',
+            rejected_at = NOW(),
+            rejection_reason = ?,
+            admin_note = ?,
+            approved_by = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `,
+        [
+          rejectionReason,
+          adminNote || null,
+          Number(req.user?.id || req.user?.sub),
+          withdrawalId,
+        ],
+      );
+
+      await connection.execute(
+        `
+          INSERT INTO distributor_wallet_transactions
+          (
+            distributor_id,
+            payment_id,
+            type,
+            amount,
+            commission_rate,
+            description,
+            status
+          )
+          VALUES (?, NULL, 'withdrawal_reversal', ?, NULL, ?, 'completed')
+        `,
+        [
+          withdrawal.distributor_id,
+          amount,
+          `Withdrawal #${withdrawalId} rejected - balance released`,
+        ],
+      );
+    }
+
+    if (status === "paid") {
+      if (withdrawal.status !== "approved") {
+        await connection.rollback();
+
+        return res.status(409).json({
+          success: false,
+          message:
+            `Only approved withdrawals can be marked paid. Current status: ${withdrawal.status}.`,
+        });
+      }
+
+      const [walletRows] = await connection.execute(
+        `
+          SELECT available_balance, pending_balance, withdrawn_amount
+          FROM distributor_wallets
+          WHERE distributor_id = ?
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [withdrawal.distributor_id],
+      );
+
+      const pendingBalance = Number(
+        walletRows[0]?.pending_balance || 0,
+      );
+
+      if (pendingBalance < amount) {
+        await connection.rollback();
+
+        return res.status(409).json({
+          success: false,
+          message: "Wallet pending balance is insufficient.",
+        });
+      }
+
+      await connection.execute(
+        `
+          UPDATE distributor_wallets
+          SET
+            pending_balance = pending_balance - ?,
+            withdrawn_amount = withdrawn_amount + ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE distributor_id = ?
+        `,
+        [amount, amount, withdrawal.distributor_id],
+      );
+
+      await connection.execute(
+        `
+          UPDATE distributor_withdrawal_requests
+          SET
+            status = 'paid',
+            paid_at = NOW(),
+            transfer_reference = ?,
+            admin_note = ?,
+            approved_by = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `,
+        [
+          transferReference,
+          adminNote || null,
+          Number(req.user?.id || req.user?.sub),
+          withdrawalId,
+        ],
+      );
+
+      await connection.execute(
+        `
+          INSERT INTO distributor_wallet_transactions
+          (
+            distributor_id,
+            payment_id,
+            type,
+            amount,
+            commission_rate,
+            description,
+            status
+          )
+          VALUES (?, NULL, 'withdrawal', ?, NULL, ?, 'completed')
+        `,
+        [
+          withdrawal.distributor_id,
+          amount,
+          `Withdrawal #${withdrawalId} paid - ${transferReference}`,
+        ],
+      );
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message:
+        status === "approved"
+          ? "Withdrawal approved successfully."
+          : status === "rejected"
+            ? "Withdrawal rejected and wallet balance released."
+            : "Withdrawal marked as paid and wallet updated.",
+      withdrawalId,
+      status,
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+
+    next(error);
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+}
+
+/* =========================================================
+   RETAILER - DISTRIBUTOR MAPPING
+========================================================= */
+
+export async function getRetailerDistributorMapping(req, res, next) {
+  try {
+    const [rows] = await db.execute(`
+      SELECT
+        u.id,
+        u.uuid,
+        u.email,
+        u.status,
+        p.first_name,
+        p.last_name,
+        p.phone,
+        p.distributor_id,
+        d.distributor_code,
+        dp.first_name AS distributor_first_name,
+        dp.last_name AS distributor_last_name
+      FROM users u
+      LEFT JOIN profiles p ON p.user_id = u.id
+      LEFT JOIN distributors d ON d.id = p.distributor_id
+      LEFT JOIN users du ON du.id = d.user_id
+      LEFT JOIN profiles dp ON dp.user_id = du.id
+      WHERE u.role = 'retailer'
+      ORDER BY u.created_at DESC
+    `);
+
+    return res.json({
+      success: true,
+      retailers: rows.map((row) => ({
+        id: row.id,
+        uuid: row.uuid,
+        email: row.email,
+        status: row.status,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        phone: row.phone,
+        distributorId: row.distributor_id,
+        distributorCode: row.distributor_code,
+        distributorName: [row.distributor_first_name, row.distributor_last_name]
+          .filter(Boolean)
+          .join(" ") || null,
+      })),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function assignRetailerDistributor(req, res, next) {
+  const connection = await db.getConnection();
+
+  try {
+    const retailerId = Number(req.params.id);
+    const rawDistributorId = req.body?.distributorId;
+
+    const distributorId =
+      rawDistributorId === undefined ||
+      rawDistributorId === null ||
+      rawDistributorId === ""
+        ? null
+        : Number(rawDistributorId);
+
+    if (!Number.isInteger(retailerId) || retailerId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid retailer ID.",
+      });
+    }
+
+    if (
+      distributorId !== null &&
+      (!Number.isInteger(distributorId) || distributorId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid distributor ID.",
+      });
+    }
+
+    const [retailers] = await connection.execute(
+      "SELECT id FROM users WHERE id = ? AND role = 'retailer' LIMIT 1",
+      [retailerId],
+    );
+
+    if (!retailers.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Retailer not found.",
+      });
+    }
+
+    if (distributorId !== null) {
+      const [distributors] = await connection.execute(
+        "SELECT id, status FROM distributors WHERE id = ? LIMIT 1",
+        [distributorId],
+      );
+
+      if (!distributors.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Distributor not found.",
+        });
+      }
+
+      if (distributors[0].status !== "active") {
+        return res.status(400).json({
+          success: false,
+          message: "Only active distributors can be assigned.",
+        });
+      }
+    }
+
+    const [profiles] = await connection.execute(
+      "SELECT id FROM profiles WHERE user_id = ? LIMIT 1",
+      [retailerId],
+    );
+
+    if (!profiles.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Retailer profile not found.",
+      });
+    }
+
+    await connection.execute(
+      "UPDATE profiles SET distributor_id = ? WHERE user_id = ?",
+      [distributorId, retailerId],
+    );
+
+    return res.json({
+      success: true,
+      message:
+        distributorId === null
+          ? "Retailer distributor assignment removed."
+          : "Retailer assigned to distributor successfully.",
+      retailerId,
+      distributorId,
+    });
+  } catch (error) {
+    return next(error);
+  } finally {
+    connection.release();
+  }
+}
+
