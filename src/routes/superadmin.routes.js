@@ -1,6 +1,16 @@
 import { documentUpload } from "../config/uploads.js";
 import { Router } from "express";
-import { createDistributor, getDistributors, updateDistributorStatus } from "../controllers/superadmin.controller.js";
+import {
+  createDistributor,
+  getDistributors,
+  getPendingDistributors,
+  updateDistributorApproval,
+  updateDistributorStatus,
+  getRetailerDistributorMapping,
+  assignRetailerDistributor,
+  getDistributorWithdrawalRequests,
+  updateDistributorWithdrawalStatus,
+} from "../controllers/superadmin.controller.js";
 
 import {
   getSuperAdminDashboard,
@@ -148,10 +158,64 @@ router.get("/requests/:id", clientScope, getSuperAdminRequest);
 router.patch("/requests/:id/status", clientScope, updateSuperAdminRequestStatus);
 router.post("/requests/:id/final-receipt", clientScope, documentUpload.single("finalReceipt"), uploadFinalReceipt);
 
+
+
+
+
+/* =========================================================
+   DISTRIBUTOR MANAGEMENT
+========================================================= */
+
+router.get("/distributors", getDistributors);
+
+router.get(
+  "/distributors/pending",
+  getPendingDistributors,
+);
+
+router.post(
+  "/distributors",
+  createDistributor,
+);
+
+router.patch(
+  "/distributors/:id/approval",
+  updateDistributorApproval,
+);
+
+router.patch(
+  "/distributors/:id/status",
+  updateDistributorStatus,
+);
+
+/* =========================================================
+   RETAILER - DISTRIBUTOR MAPPING
+========================================================= */
+
+router.get(
+  "/retailer-distributor-mapping",
+  getRetailerDistributorMapping,
+);
+
+router.patch(
+  "/retailer-distributor-mapping/:id",
+  assignRetailerDistributor,
+);
+
+/* =========================================================
+   DISTRIBUTOR PAYOUTS
+========================================================= */
+
+router.get(
+  "/distributor-withdrawals",
+  getDistributorWithdrawalRequests,
+);
+
+router.patch(
+  "/distributor-withdrawals/:id/status",
+  updateDistributorWithdrawalStatus,
+);
+
 export default router;
 
   
-// Distributor Management
-router.get("/distributors", getDistributors);
-router.post("/distributors", createDistributor);
-router.patch("/distributors/:id/status", updateDistributorStatus);
