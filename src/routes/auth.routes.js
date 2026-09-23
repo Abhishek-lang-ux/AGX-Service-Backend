@@ -4,6 +4,7 @@ import {
   me,
   register,
   registerRetailer,
+  registerDistributor,
   forgotPassword,
   resetPassword,
 } from "../controllers/auth.controller.js";
@@ -13,6 +14,7 @@ const router = Router();
 
 router.post("/register", register);
 router.post("/register-retailer", registerRetailer);
+router.post("/register-distributor", registerDistributor);
 router.post("/login", login);
 router.get("/me", requireAuth, me);
 router.post("/forgot-password", forgotPassword);
