@@ -21,6 +21,7 @@ import {
   updateRetailerServicePrice,
   updateSuperAdminUserStatus,
   updateSuperAdminUserRole,
+  deleteSuperAdminUser,
 
   getSuperAdminDocuments,
   viewSuperAdminDocument,
@@ -85,6 +86,8 @@ router.patch(
   "/users/:id/role",
   updateSuperAdminUserRole,
 );
+
+router.delete("/users/:id", deleteSuperAdminUser);
 
 /* =========================================================
    DOCUMENTS
@@ -218,4 +221,4 @@ router.patch(
 
 export default router;
 
-  
+
