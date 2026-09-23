@@ -2481,8 +2481,16 @@ export const getDistributors = async (req, res) => {
         d.distributor_code,
         d.status,
         d.created_at,
-        d.updated_at
+        d.updated_at,
+        u.email,
+        u.role,
+        p.first_name,
+        p.last_name,
+        p.phone,
+        TRIM(CONCAT_WS(' ', NULLIF(p.first_name, ''), NULLIF(p.last_name, ''))) AS name
       FROM distributors d
+      LEFT JOIN users u ON u.id = d.user_id
+      LEFT JOIN profiles p ON p.user_id = d.user_id
       ORDER BY d.id DESC
     `);
 
